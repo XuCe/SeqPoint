@@ -19,7 +19,9 @@ class SyncTransferBudget {
 }
 
 class SyncContentTransfer {
-  SyncContentTransfer(this.codec,this.client,this.budget);
+  SyncContentTransfer(this.codec,this.client,this.budget,{String? providerDeviceId})
+      : providerDeviceId=providerDeviceId ?? (client is LanTransport ? client.peer.deviceId : null);
+  final String? providerDeviceId;
   final SyncManifestCodec codec;
   final VaultTransport client;
   final SyncTransferBudget budget;
@@ -85,8 +87,8 @@ class SyncContentTransfer {
       }
     }
     List<int> bytes;
-    if(client case final LanTransport lan) {
-      final response=await lan.get('content/${lan.peer.deviceId}/$hash.json');
+    if(providerDeviceId != null) {
+      final response=await client.get('content/$providerDeviceId/$hash.json');
       if(response is Err<List<int>>) return null;
       bytes=(response as Ok<List<int>>).value;
     } else {
@@ -112,8 +114,8 @@ class SyncContentTransfer {
       codec.blobs.files.guard?.call();
       if(chunk.size>budget.remaining) return false;
       List<int> frame;
-      if(client case final LanTransport lan) {
-        final response=await lan.get('content/${lan.peer.deviceId}/${chunk.hash}.bin');
+      if(providerDeviceId != null) {
+        final response=await client.get('content/$providerDeviceId/${chunk.hash}.bin');
         if(response is Err<List<int>>) return false;
         frame=(response as Ok<List<int>>).value;
       } else {

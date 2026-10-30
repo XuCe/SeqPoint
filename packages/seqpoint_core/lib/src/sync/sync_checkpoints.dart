@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'transport/lan_transport.dart';
 import '../db/database.dart';
 import 'sync_content_transfer.dart';
 import 'sync_manifest.dart';
@@ -112,8 +111,10 @@ class SyncCheckpoints {
     added+=commitSyncCheckpoint(db,manifest,guard);
   }
   Future<void> pullLan() async {
-    final client=transfer.client as LanTransport;
-    final path='checkpoints/${client.peer.deviceId}';
+    final client=transfer.client;
+    final provider=transfer.providerDeviceId;
+    if(provider==null) throw StateError('Missing publication provider');
+    final path='checkpoints/$provider';
     final files=transfer.value(await client.list(path));guard();
     for(final file in files) {
       final bytes=transfer.value(await client.get('$path/${file.name}'));guard();

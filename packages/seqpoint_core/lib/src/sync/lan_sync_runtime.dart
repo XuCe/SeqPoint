@@ -23,6 +23,7 @@ import 'sync_media_prepare.dart';
 import 'sync_content_catalog.dart';
 import 'sync_cache_gc.dart';
 import 'transport/published_file_view.dart';
+import 'transport/folder_transport.dart';
 import 'transport/lan_file_source.dart';
 import 'transport/lan_https_server.dart';
 import 'transport/lan_protocol.dart';
@@ -33,6 +34,8 @@ import 'vault/encrypted_segment_codec.dart';
 import 'vault/segment.dart';
 import 'vault/vault_layout.dart';
 import 'vault/vault_store.dart';
+
+part 'lan_sync_runtime_folder.dart';
 
 /// The adapter must return null while verified membership is being replaced.
 final class LanSyncMembership {
@@ -222,7 +225,7 @@ class LanSyncRuntime {
     await collectSyncCache(db,codec.blobs.files);
     _lastCacheGc=now;
   }
-  Future<void> _preparePublishedContent(_LanScope scope,VaultStore store,EncryptedSegmentCodec codec,{bool publishPending=true}) async {
+  Future<void> _preparePublishedContent(_LanScope scope,VaultStore store,EncryptedSegmentCodec codec,{bool publishPending=true,bool forceCheckpoint=false}) async {
     final content=_contentCodec(scope);
     if(publishPending) {
       await prepareLocalSyncMedia(db,SyncFiles(Directory('${root.parent.path}/attachments'),guard:()=>_ensure(scope)),content);
@@ -230,7 +233,7 @@ class LanSyncRuntime {
     }
     final size=db.raw.select('SELECT COUNT(*) AS n,COALESCE(SUM(length(segment_bytes)),0) AS bytes FROM sync_publications').single;
     final compacted=db.raw.select('SELECT 1 FROM sync_checkpoints WHERE author=?',[localDevice.deviceId]).isNotEmpty;
-    if(!compacted && (size['n'] as int)<100 && (size['bytes'] as int)<16*1024*1024) {
+    if(!forceCheckpoint && !compacted && (size['n'] as int)<100 && (size['bytes'] as int)<16*1024*1024) {
       await _catalog!.refresh(codec:codec);
       _contentFiles=await syncContentCatalog(db,content);_ensure(scope);return;
     }

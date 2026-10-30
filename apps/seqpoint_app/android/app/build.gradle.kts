@@ -79,6 +79,7 @@ kotlin {
 }
 
 dependencies {
+    implementation(files("$rootDir/../../../native/syncthing/artifacts/seqpoint-syncthing.aar"))
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
