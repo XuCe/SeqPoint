@@ -24,9 +24,9 @@
 ## Task 1: 局域网配对地址与邀请
 Files: 新建 app/lib/sync/lan_pairing_link.dart、test/lan_pairing_link_test.dart（app均指apps/seqpoint_app）。
 Interfaces: LanPairingAddress.parse(String)、LanPairingLink.encode/decode；携带IP列表、端口及既有PairingInvitation载荷。
-- [ ] 测试合法IPv4/IPv6地址、端口边界、错误协议/超大载荷、邀请过期与字段篡改；格式校验后运行观察失败。
-- [ ] 实现严格解析与格式化；只接受本应用二维码格式，不执行任意URL；邀请签名仍由核心协议验证。
-- [ ] 验证：flutter test test/lan_pairing_link_test.dart --reporter expanded，预期全通过；提交。
+- [x] 测试合法IPv4/IPv6地址、端口边界、错误协议/超大载荷、邀请过期与字段篡改；格式校验后运行观察失败。
+- [x] 实现严格解析与格式化；只接受本应用二维码格式，不执行任意URL；邀请签名仍由核心协议验证。
+- [x] 验证：flutter test test/lan_pairing_link_test.dart --reporter expanded，预期全通过；提交。
 
 ## Task 2: 网络配对协调
 Files: app/lib/sync/app_sync_service.dart、app_sync_service_lan_pairing.dart、lan_pairing_network.dart；test/lan_pairing_service_test.dart。
