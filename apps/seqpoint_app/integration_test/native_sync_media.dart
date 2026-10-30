@@ -1,7 +1,6 @@
 import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seqpoint_core/seqpoint_core.dart';
-import 'package:seqpoint_core/src/sync/transport/lan_protocol.dart';
 import 'native_sync_support.dart';
 
 Future<void> exchangeLargeMedia(SeqDatabase db,Directory root,String noteId,AcceptanceControl control) async {

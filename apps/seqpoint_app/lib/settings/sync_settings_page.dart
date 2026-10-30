@@ -4,6 +4,7 @@ import 'package:seqpoint_core/seqpoint_core.dart';
 import '../app/app_scope.dart';
 import '../sync/app_sync_service.dart';
 import '../sync/sync_pairing_page.dart';
+import '../sync/lan_pairing_page.dart';
 import '../sync/sync_membership_controller.dart';
 import 'settings_scaffold.dart';
 import 'relay_settings.dart';
@@ -148,14 +149,29 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     return SettingsScaffold(title: '同步',
       footnote: '配对后通过加密连接交换数据。本机上传不代表对端已收到。'
         '旧日志在检查点验证完成后回收，离线设备可从检查点继续同步。', children: [
+      SettingsGroup(label: '局域网同步', children: [
+        if (_error ?? service.error case final message?)
+          ListTile(leading: const Icon(Icons.error_outline), title: Text(message)),
+        for (final peer in service.lanPeers) ListTile(
+          leading: const Icon(Icons.devices), title: Text('设备 ${peer.deviceId.substring(0, 8)}'),
+          subtitle: Text('${peer.host}:${peer.port} · ${service.lanEnabled ? '自动同步已开启' : '已暂停'}')),
+        SwitchListTile(value: service.lanEnabled,
+          onChanged: disabled || !service.prepared ? null : (value) =>
+            _run(service, () => service.setLanEnabled(value)),
+          title: const Text('局域网自动双向同步'),
+          subtitle: const Text('同一网络中的已配对设备自动交换修改')),
+        ListTile(title: const Text('连接手机或电脑'),
+          subtitle: const Text('电脑显示二维码，手机扫一扫；也可输入对方 IP:端口'),
+          leading: const Icon(Icons.qr_code_scanner), trailing: const Icon(Icons.chevron_right),
+          onTap: disabled || recovering || conflicted ? null : () => Navigator.of(context).push<void>(
+            MaterialPageRoute(builder: (_) => LanPairingPage(service: service)))),
+      ]),
+      ExpansionTile(title: const Text('高级同步设置'), children: [
       SettingsGroup(label: '本机', children: [
         ListTile(title: Text(service.status)),
         if (restoring) const ListTile(title: Text('正在恢复备份，同步操作暂不可用')),
         if (recovering) const ListTile(title: Text('恢复后需要新设备身份'),
           subtitle: Text('旧身份不再用于发布。先生成新身份，再向可信设备重新配对；旧密钥保留。')),
-        if (_error ?? service.error case final message?)
-          Semantics(liveRegion: true, child: ListTile(title: Text(message),
-            leading: const Icon(Icons.error_outline))),
         if (disabled && !_confirming) const LinearProgressIndicator(),
         if (!service.prepared || (recovering && !service.hasPendingIdentityRecovery)) Padding(
           padding: const EdgeInsets.all(16),
@@ -228,6 +244,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
           ListTile(title: const Text('等待接收的设备'), subtitle: SelectableText(peer)),
       ]),
       RelaySettings(key: ValueKey(service.relayVaultId), service: service, disabled: disabled),
+      ]),
       const SettingsGroup(label: '其他通道', children: [
         SwitchListTile(value: false, onChanged: null, title: Text('本地目录'),
           subtitle: Text('尚未接入')),

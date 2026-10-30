@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.INSTALL_PACKAGES" tools:node="remove"/>
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove"/>
     <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-permission android:name="android.permission.RECORD_AUDIO"/>
     <!-- 提醒：本地通知与精确闹钟。精确提醒是产品的强约束，必须准时触发。 -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>

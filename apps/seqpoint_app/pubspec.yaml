@@ -39,6 +39,8 @@ dependencies:
   pub_semver: ^2.2.1
   auto_updater: ^1.0.0
   ota_update: ^7.1.0
+  qr_flutter: ^4.1.0
+  mobile_scanner: ^7.4.2
 
 dev_dependencies:
   flutter_test:

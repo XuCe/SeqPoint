@@ -12,8 +12,15 @@ class _Secrets extends Fake implements SecretStore {
 class _Automatic extends AppSyncService {
   _Automatic({required super.db,required super.root,required super.secrets});
   int rounds=0;
+  bool failLan=false;
+  @override Future<int> startServer({InternetAddress? address,int port=0,bool automatic=false}) {
+    if(failLan) throw StateError('Port already occupied');
+    return super.startServer(address:address,port:port,automatic:automatic);
+  }
   @override bool get canSync=>true;
   @override bool get prepared=>true;
+  @override DeviceIdentity get identity => DeviceIdentity(deviceId:'a'*43,
+    name:'test',signingPublicKey:'',exchangePublicKey:'',addedAt:DateTime.utc(2026));
   @override String get relayVaultId=>'v'*43;
   @override Future<String> loadRelayEndpoint() async=>'https://example.test';
   @override Future<SyncOutcome> syncRelay({bool automatic=false}) async {
@@ -23,6 +30,15 @@ class _Automatic extends AppSyncService {
 }
 void main() {
   setUp(()=>SharedPreferences.setMockInitialValues({}));
+  test('LAN listener failure does not skip the relay target',() async {
+    SharedPreferences.setMockInitialValues({'sync.lan.${'a'*43}.${'v'*43}.enabled':true});
+    final db=SeqDatabase.inMemory()..migrate();SyncBaseline(db).initialize('a'*43);
+    final service=_Automatic(db:db,root:Directory('/unused'),secrets:_Secrets())..failLan=true;
+    addTearDown(() async {await service.stop();service.dispose();db.close();});
+    await service.startAutomatic();
+    await Future<void>.delayed(const Duration(milliseconds:1200));
+    expect(service.rounds,1);
+  });
   testWidgets('startup does not create an identity for an unbound local database',(tester) async {
     final db=SeqDatabase.inMemory()..migrate(),secrets=_Secrets();
     final service=AppSyncService(db:db,root:Directory('/unused'),secrets:secrets);

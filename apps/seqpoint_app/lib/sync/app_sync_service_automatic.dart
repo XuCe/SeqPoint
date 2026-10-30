@@ -22,15 +22,14 @@ extension _AppSyncAutomatic on AppSyncService {
     final vault=relayVaultId,endpoint=await loadRelayEndpoint();
     if(_closed || vault!=relayVaultId) return;
     _automaticEndpoint=endpoint;
+    await _loadLanTargets();
     _automatic??=AutoSyncScheduler(revision:() {
       if(_closed || !db.raw.autocommit) return null;
       final row=db.raw.select('SELECT hlc_millis,hlc_counter,media_enabled FROM sync_local WHERE id=1').single;
       return '${row['hlc_millis']}:${row['hlc_counter']}:${row['media_enabled']}';
-    },canRun:()=>!_closed && !_busy && !_userPaused && !_suspended && _automaticEnabled && canSync && _automaticEndpoint.isNotEmpty,
-      work:() async {
-        await syncRelay(automatic:true);
-        return (_runtime?.mediaPending??false) && (_runtime?.mediaTransferredBytes??0)>0;
-      });
+    },canRun:()=>!_closed && !_busy && !_userPaused && !_suspended && _automaticEnabled && canSync && (_automaticEndpoint.isNotEmpty || (_lanEnabled && _lanPeers.isNotEmpty)),
+      work:_automaticRound);
+    _automatic!.idleInterval=Duration(seconds:_lanEnabled?5:60);
     if(!_userPaused && !_suspended) _automatic!.start();
     _notifyAutomatic();
   }

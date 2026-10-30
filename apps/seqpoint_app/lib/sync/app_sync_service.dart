@@ -10,11 +10,15 @@ import 'sync_identity_store.dart';
 import 'sync_membership_controller.dart';
 import 'sync_membership_store.dart';
 import 'sync_tls_store.dart';
+import 'lan_pairing_link.dart';
+import 'lan_pairing_network.dart';
 
 part 'app_sync_service_pairing.dart';
 part 'app_sync_service_recovery.dart';
 part 'app_sync_service_revocation.dart';
 part 'app_sync_service_automatic.dart';
+part 'app_sync_service_lan_pairing.dart';
+part 'app_sync_service_lan.dart';
 
 /// Main-engine owner; construction does not touch storage or the network.
 class AppSyncService extends ChangeNotifier {
@@ -24,6 +28,13 @@ class AppSyncService extends ChangeNotifier {
   final Directory root;
   final SecretStore secrets;
   final FutureOr<void> Function()? onCommittedChange;
+  bool _lanEnabled = false;
+  final Map<String, LanPeer> _lanPeers = {};
+  bool get lanEnabled => _lanEnabled;
+  List<LanPeer> get lanPeers => List.unmodifiable(_lanPeers.values);
+  Future<void> setLanEnabled(bool value) => _setLanEnabled(value);
+  LanPairingCoordinator? _lanPairing;
+  LanPairingCoordinator get lanPairing => _lanPairing ??= LanPairingCoordinator(this);
   LocalDeviceIdentity? _local;
   LanTlsIdentity? _tls;
   SyncMembershipController? _controller;
@@ -236,13 +247,14 @@ class AppSyncService extends ChangeNotifier {
   Future<PairingInvitation> createRecoveryInvitation() =>
       _createRecoveryInvitation();
 
-  Future<void> newVault() => _run(() async {
+  Future<void> newVault() => _newVault();
+  Future<void> _newVault({String? vaultPublicId}) => _run(() async {
     _requirePrepared();
     _requireNormalMode();
     final random = Random.secure();
     List<int> fresh() => List.generate(32, (_) => random.nextInt(256));
     await _controller!.createVault(
-        vaultPublicId: base64UrlEncode(fresh()).replaceAll('=', ''),
+        vaultPublicId: vaultPublicId ?? base64UrlEncode(fresh()).replaceAll('=', ''),
         epochKey: VaultKey(epoch: 1, keyBytes: fresh()),
         tlsFingerprint: _tls!.fingerprint);
     _enableBaseline();
@@ -308,21 +320,34 @@ class AppSyncService extends ChangeNotifier {
     }
   });
 
-  Future<int> startServer({InternetAddress? address, int port = 0}) => _run(() async {
+  Future<int> startServer({InternetAddress? address, int port = 0, bool automatic = false}) => _run(() async {
     if (!canSync) throw StateError('同步尚未安全启用');
-    await _resumeManual();
+    if (automatic) {
+      if (_closed || _userPaused || _suspended || !_lanEnabled || !_automaticEnabled) {
+        throw StateError('自动同步已暂停');
+      }
+    } else { await _resumeManual(); }
     if (_listeningPort != null) return _listeningPort!;
     if (_paused) { _runtime!.resume(); _paused = false; }
-    return _listeningPort = await _runtime!.startServer(address: address, port: port,
+    final prefs = await SharedPreferences.getInstance();
+    final key = 'sync.lan.port.${identity!.deviceId}';
+    final savedPort = port != 0 ? port : prefs.getInt(key) ?? 0;
+    _listeningPort = await _runtime!.startServer(address: address, port: savedPort,
         securityContext: _tls!.createSecurityContext(), tlsFingerprint: _tls!.fingerprint);
+    if (!await prefs.setInt(key, _listeningPort!)) throw StateError('监听端口保存失败');
+    return _listeningPort!;
   });
 
   Future<SyncOutcome> syncOnce({required String peerDeviceId, required String host,
-      required int port}) => _run(() async {
+      required int port, bool automatic = false}) => _run(() async {
     if (!canSync || host.trim().isEmpty || port < 1 || port > 65535) {
       throw StateError('同步身份或对端地址无效');
     }
-    await _resumeManual();
+    if (automatic) {
+      if (_closed || _userPaused || _suspended || !_lanEnabled || !_automaticEnabled) {
+        throw StateError('自动同步已暂停');
+      }
+    } else { await _resumeManual(); }
     final peer = _controller!.authorize(
         _controller!.current!.state.vaultPublicId, peerDeviceId);
     if (peer == null) throw StateError('对端不在有效成员名单');
@@ -356,6 +381,7 @@ class AppSyncService extends ChangeNotifier {
   }
 
   Future<void> _stop() async {
+    await _lanPairing?.close();
     await _tail;
     await _automatic?.stop();
     cancelPairing();

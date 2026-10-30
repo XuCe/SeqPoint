@@ -70,7 +70,8 @@ export 'src/sync/segment_receiver.dart';
 export 'src/sync/transport/folder_transport.dart';
 export 'src/sync/transport/lan_transport.dart';
 export 'src/sync/transport/lan_https_server.dart';
-export 'src/sync/transport/lan_protocol.dart' show LanAuthorization;
+export 'src/sync/transport/lan_protocol.dart'
+    show LanAuthorization, lanReadBounded, lanSha256;
 export 'src/sync/transport/lan_file_source.dart' show LanPublishedFiles;
 export 'src/sync/transport/relay_transport.dart';
 export 'src/sync/transport/vault_transport.dart';
@@ -85,7 +86,8 @@ export 'src/crypto/lan_tls_identity.dart';
 export 'src/crypto/ed25519_signer.dart';
 export 'src/crypto/vault_key.dart';
 export 'src/crypto/xchacha20_aead.dart';
-export 'src/identity/device_identity.dart' hide MembershipEvent, MembershipEventType;
+export 'src/identity/device_identity.dart'
+    hide MembershipEvent, MembershipEventType;
 export 'src/identity/device_keys.dart';
 export 'src/identity/member_keys.dart';
 export 'src/identity/membership_state.dart';
@@ -95,7 +97,8 @@ export 'src/identity/pairing.dart';
 export 'src/identity/pairing_handshake.dart';
 export 'src/identity/pairing_invitation.dart';
 export 'src/identity/pairing_response.dart';
-export 'src/identity/pairing_transcript.dart' show PairingTranscript, PairingParticipant;
+export 'src/identity/pairing_transcript.dart'
+    show PairingTranscript, PairingParticipant;
 
 // 工具
 export 'src/util/clock.dart';

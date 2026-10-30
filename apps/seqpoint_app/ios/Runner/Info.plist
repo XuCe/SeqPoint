@@ -3,7 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>用于与您确认配对的局域网设备交换加密便签和事项。</string>
+	<string>连接同一局域网中的序点设备并同步数据。</string>
+	<key>NSCameraUsageDescription</key>
+	<string>用于扫描另一台序点设备的配对二维码。</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>仅在您主动开始语音输入或会议录音时使用麦克风。</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

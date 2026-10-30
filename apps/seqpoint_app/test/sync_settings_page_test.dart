@@ -33,7 +33,7 @@ class _Sync extends AppSyncService {
   @override
   int? get listeningPort => listening;
   @override
-  Future<int> startServer({InternetAddress? address, int port = 0}) async {
+  Future<int> startServer({InternetAddress? address, int port = 0, bool automatic = false}) async {
     starts++; listening = 31415; notifyListeners(); return listening!;
   }
   @override
@@ -49,7 +49,7 @@ class _Sync extends AppSyncService {
   SyncOutcome? get lastRound => round;
   @override
   Future<SyncOutcome> syncOnce({required String peerDeviceId,
-      required String host, required int port}) async {
+      required String host, required int port, bool automatic = false}) async {
     syncs++;
     round = const SyncOutcome(pulled: 2, pushed: 3, reclaimed: 0, peers: [],
       pendingObjects: 1, waitingPeers: ['waiting']);
@@ -82,6 +82,7 @@ void main() {
     sync.round = const SyncOutcome(pulled: 0, pushed: 0, reclaimed: 0,
       peers: [], waitingPeers: ['known-peer-id', 'unseen-peer-id']);
     await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
+    await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
     expect(find.text('known-peer-id'), findsOneWidget);
     expect(find.text('unseen-peer-id'), findsOneWidget);
     expect(find.textContaining('缺少密钥'), findsNothing);
@@ -97,6 +98,7 @@ void main() {
     final sync = _Sync(SeqDatabase.inMemory())..ready = true..paired = true;
     addTearDown(() { sync.db.close(); sync.dispose(); });
     await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
+    await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
     expect(sync.starts, 0);
     await tester.tap(find.text('开始局域网监听')); await tester.pumpAndSettle();
     expect(sync.starts, 1); expect(find.text('正在监听端口 31415'), findsOneWidget);
@@ -113,6 +115,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: AppScope(noteService: _Capture(),
       notes: _Notes(), items: _Items(), tags: _Tags(), search: _Search(),
       restoring: true, sync: sync, child: const SyncSettingsPage())));
+    await tester.tap(find.text('高级同步设置')); await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('正在恢复备份，同步操作暂不可用'), findsOneWidget);
     await tester.scrollUntilVisible(find.byKey(const ValueKey('sync-host')), 200,
       scrollable: find.byType(Scrollable).first);
@@ -130,6 +133,7 @@ void main() {
     final sync = _Sync(SeqDatabase.inMemory())..failPrepare = true;
     addTearDown(() { sync.db.close(); sync.dispose(); });
     await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
+    await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
     await tester.tap(find.text('准备本机')); await tester.pumpAndSettle();
     expect(sync.prepared, isTrue);
     expect(find.text('private-key-material'), findsNothing);
@@ -144,6 +148,7 @@ void main() {
     final sync = _Sync(SeqDatabase.inMemory())..ready = true..paired = true;
     addTearDown(() { sync.db.close(); sync.dispose(); });
     await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
+    await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('sync-host')), 'bad address');
     await tester.enterText(find.byKey(const ValueKey('sync-port')), '4000');
     await tester.tap(find.text('连接并同步一次')); await tester.pump();
@@ -160,6 +165,7 @@ void main() {
     addTearDown(() { sync.db.close(); sync.dispose(); });
     sync.gate = Completer<void>();
     await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
+    await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
     expect(sync.prepares, 0);
     await tester.tap(find.text('准备本机')); await tester.pump();
     expect(sync.prepares, 1);

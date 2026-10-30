@@ -3,8 +3,10 @@ import 'dart:math';
 
 class AutoSyncScheduler {
   AutoSyncScheduler({required this.revision,required this.canRun,required this.work,
-    DateTime Function()? now,double Function()? jitter,this.onError})
+    DateTime Function()? now,double Function()? jitter,this.onError,
+    this.idleInterval=const Duration(seconds:60)})
     : now=now??DateTime.now,jitter=jitter??(()=>0.8+Random().nextDouble()*0.4);
+  Duration idleInterval;
   final String? Function() revision;
   final bool Function() canRun;
   final Future<bool> Function() work;
@@ -39,7 +41,7 @@ class AutoSyncScheduler {
   Future<void> _execute() async {
     try {
       final pending=await work();_failures=0;_retryAt=null;
-      _due??=now().add(Duration(seconds:pending?2:60));
+      _due??=now().add(pending ? const Duration(seconds:2) : idleInterval);
     } catch(error) {
       _failures=(_failures+1).clamp(1,7);
       _retryAt=now().add(Duration(milliseconds:min(300000,max(5000,min(300,5*(1<<(_failures-1)))*1000*jitter())).round()));
