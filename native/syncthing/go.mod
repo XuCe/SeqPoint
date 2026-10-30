@@ -2,6 +2,8 @@ module github.com/XuCe/SeqPoint/native/syncthing
 
 go 1.26.2
 
+toolchain go1.26.9
+
 require (
 	github.com/syncthing/syncthing v1.30.0-rc.1.0.20261020195438-d6d0181f7d46
 	github.com/thejerf/suture/v4 v4.0.6

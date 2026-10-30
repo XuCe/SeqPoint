@@ -9262,8 +9262,8 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-Go runtime: go1.27.2
-Source: https://go.dev/dl/go1.27.2.src.tar.gz
+Go runtime: go1.26.9
+Source: https://go.dev/dl/go1.26.9.src.tar.gz
 
 Copyright 2009 The Go Authors.
 

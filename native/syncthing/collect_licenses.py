@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 """Collect pinned native dependencies, including platform-specific modules."""
 import json
+import os
 from pathlib import Path
 import subprocess
 
 root = Path(__file__).resolve().parent
+os.environ['GOTOOLCHAIN'] = next(line.split()[1] for line in
+    (root / 'go.mod').read_text().splitlines() if line.startswith('toolchain '))
 
 def go(*args):
     return subprocess.check_output(['go', *args], cwd=root, text=True)
