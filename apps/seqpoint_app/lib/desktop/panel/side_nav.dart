@@ -93,52 +93,23 @@ class _Brand extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
       child: Row(
         children: [
-          const _Logo(),
+          Image.asset('assets/brand/logo.png', width: 32, height: 32,
+            excludeFromSemantics: true),
           const SizedBox(width: 8),
-          Text(
-            '序点',
+          Expanded(child: Text(
+            context.findAncestorWidgetOfExactType<Title>()?.title ?? '序点',
+            maxLines: 2,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontFamily: SeqFonts.serif.first,
                   fontFamilyFallback: SeqFonts.serif,
                   fontWeight: FontWeight.w700,
                   letterSpacing: 1.2,
                 ),
-          ),
+          )),
         ],
       ),
     );
   }
-}
-
-/// 三节点抽象 S：由小到大的三个点，最后一个是琥珀色。
-class _Logo extends StatelessWidget {
-  const _Logo();
-
-  @override
-  Widget build(BuildContext context) =>
-      CustomPaint(size: const Size(22, 22), painter: _LogoPainter());
-}
-
-class _LogoPainter extends CustomPainter {
-  @override
-  void paint(Canvas canvas, Size size) {
-    final s = size.width / 26;
-    final dark = Paint()..color = SeqTokens.accentInk;
-    canvas.drawCircle(Offset(6 * s, 5.5 * s), 2.6 * s, dark);
-    canvas.drawCircle(
-      Offset(13 * s, 13 * s),
-      3.1 * s,
-      Paint()..color = SeqTokens.accentInk.withValues(alpha: 0.78),
-    );
-    canvas.drawCircle(
-      Offset(20 * s, 20.5 * s),
-      3.7 * s,
-      Paint()..color = SeqTokens.accent,
-    );
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
 
 class _NavItem extends StatelessWidget {

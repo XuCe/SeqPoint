@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
 
 import 'ai_settings_page.dart';
@@ -35,6 +36,18 @@ class SettingsView extends StatelessWidget {
                   Navigator.of(context)
                       .push(MaterialPageRoute<void>(builder: (_) => page)),
             ),
+          ListTile(
+            leading: const Icon(Icons.info_outline),
+            title: const Text('关于序点'),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: () async {
+              final info = await PackageInfo.fromPlatform();
+              if (!context.mounted) return;
+              showAboutDialog(context: context, applicationName: '序点',
+                applicationVersion: info.version,
+                applicationIcon: Image.asset('assets/brand/logo.png', width: 48, height: 48));
+            },
+          ),
         ],
       ),
     ],

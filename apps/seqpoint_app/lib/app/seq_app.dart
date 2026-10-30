@@ -31,7 +31,8 @@ typedef AppSyncServiceFactory = AppSyncService Function(
 /// 应用根组件。启动时先装配核心层，再按端分流到桌面壳或移动壳。
 class SeqApp extends StatefulWidget {
   const SeqApp({super.key, this.windows, this.hotkeys, this.tray,
-    this.notifications, this.notificationError, this.notificationCapacity, this.syncFactory})
+    this.notifications, this.notificationError, this.notificationCapacity, this.syncFactory,
+    this.title = '序点'})
     : _stickyNoteId = null,
       onClose = null;
 
@@ -39,6 +40,7 @@ class SeqApp extends StatefulWidget {
   const SeqApp.sticky({
     super.key,
     required String noteId,
+    this.title = '序点',
     this.windows,
     this.onClose,
   }) : _stickyNoteId = noteId,
@@ -49,6 +51,7 @@ class SeqApp extends StatefulWidget {
        syncFactory = null,
        tray = null;
 
+  final String title;
   final String? _stickyNoteId;
   final WindowService? windows;
   final HotkeyService? hotkeys;
@@ -358,7 +361,7 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
     return MaterialApp(
       navigatorKey: _navigator,
       scaffoldMessengerKey: _messenger,
-      title: '序点',
+      title: widget.title,
       debugShowCheckedModeBanner: false,
       theme: seqLightTheme(),
       darkTheme: seqDarkTheme(),

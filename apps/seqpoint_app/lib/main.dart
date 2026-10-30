@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
 import 'package:window_manager/window_manager.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'app/seq_app.dart';
 import 'platform/desktop_windows.dart';
@@ -25,6 +26,8 @@ Future<void> main(List<String> args) async {
       await rootBundle.loadString('assets/licenses/syncthing.txt'));
   });
 
+  final info = await PackageInfo.fromPlatform();
+  final title = '序点 ${info.version}';
   if (Platform.isMacOS || Platform.isWindows) {
     await windowManager.ensureInitialized();
     final current = await WindowController.fromCurrentEngine();
@@ -37,6 +40,7 @@ Future<void> main(List<String> args) async {
       runApp(
         SeqApp.sticky(
           noteId: noteId,
+          title: title,
           windows: DesktopWindowService(),
           onClose: () => windowManager.close(),
         ),
@@ -46,7 +50,9 @@ Future<void> main(List<String> args) async {
         await windowManager.focus();
       });
     } else {
+      await windowManager.setTitle(title);
       await _runMainApp(
+          title: title,
           windows: DesktopWindowService(),
           hotkeys: DesktopHotkeyService(isWindows: Platform.isWindows),
           tray: DesktopTrayService(),
@@ -55,10 +61,10 @@ Future<void> main(List<String> args) async {
     return;
   }
 
-  await _runMainApp();
+  await _runMainApp(title: title);
 }
 
-Future<void> _runMainApp({WindowService? windows, HotkeyService? hotkeys,
+Future<void> _runMainApp({required String title, WindowService? windows, HotkeyService? hotkeys,
     TrayService? tray}) async {
   NotificationService? notifications;
   String? notificationError;
@@ -75,7 +81,7 @@ Future<void> _runMainApp({WindowService? windows, HotkeyService? hotkeys,
   } catch (e) {
     notificationError = '通知初始化失败：$e';
   }
-  runApp(SeqApp(windows: windows, hotkeys: hotkeys, tray: tray,
+  runApp(SeqApp(title: title, windows: windows, hotkeys: hotkeys, tray: tray,
     notifications: notifications, notificationError: notificationError,
     notificationCapacity: Platform.isIOS ? 64 : null));
 }

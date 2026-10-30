@@ -1,6 +1,7 @@
 #include "my_application.h"
 
 #include <flutter_linux/flutter_linux.h>
+#include <string>
 #ifdef GDK_WINDOWING_X11
 #include <gdk/gdkx.h>
 #endif
@@ -25,6 +26,19 @@ static void my_application_activate(GApplication* application) {
   GtkWindow* window =
       GTK_WINDOW(gtk_application_window_new(GTK_APPLICATION(application)));
 
+  const auto version = std::string(FLUTTER_VERSION).substr(0, std::string(FLUTTER_VERSION).find('+'));
+  const auto title = "序点 " + version;
+  gtk_window_set_title(window, title.c_str());
+  g_autofree gchar* executable = g_file_read_link("/proc/self/exe", nullptr);
+  if (executable != nullptr) {
+    g_autofree gchar* directory = g_path_get_dirname(executable);
+    g_autofree gchar* icon = g_build_filename(directory, "data", "flutter_assets",
+        "assets", "brand", "logo.png", nullptr);
+    if (!gtk_window_set_icon_from_file(window, icon, nullptr)) {
+      g_warning("Unable to load SeqPoint application icon");
+    }
+  }
+
   // Use a header bar when running in GNOME as this is the common style used
   // by applications and is the setup most users will be using (e.g. Ubuntu
   // desktop).
@@ -45,11 +59,9 @@ static void my_application_activate(GApplication* application) {
   if (use_header_bar) {
     GtkHeaderBar* header_bar = GTK_HEADER_BAR(gtk_header_bar_new());
     gtk_widget_show(GTK_WIDGET(header_bar));
-    gtk_header_bar_set_title(header_bar, "seqpoint_app");
+    gtk_header_bar_set_title(header_bar, title.c_str());
     gtk_header_bar_set_show_close_button(header_bar, TRUE);
     gtk_window_set_titlebar(window, GTK_WIDGET(header_bar));
-  } else {
-    gtk_window_set_title(window, "seqpoint_app");
   }
 
   gtk_window_set_default_size(window, 1280, 720);

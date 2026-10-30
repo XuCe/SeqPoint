@@ -43,6 +43,7 @@ dependencies:
   mobile_scanner: ^7.4.2
 
 dev_dependencies:
+  flutter_launcher_icons: 0.14.4
   flutter_test:
     sdk: flutter
   integration_test:
@@ -56,4 +57,5 @@ flutter:
   assets:
     - shorebird.yaml
     - assets/tray/
+    - assets/brand/logo.png
     - assets/licenses/syncthing.txt

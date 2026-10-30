@@ -16,5 +16,7 @@ class MainFlutterWindow: NSWindow {
     }
 
     super.awakeFromNib()
+    let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""
+    title = "序点 \(version)"
   }
 }
