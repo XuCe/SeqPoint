@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seqpoint_app/platform/syncthing_engine_host.dart';
+import 'package:seqpoint_app/sync/syncthing_client.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
 
 class _Secrets extends Fake implements SecretStore {
@@ -14,6 +15,67 @@ class _Secrets extends Fake implements SecretStore {
 
 void main() {
   final executable = Platform.environment['SEQPOINT_SYNCTHING_BIN'];
+  test(
+    'restart pauses transfers and configuration replaces the selected NAS',
+    () async {
+      final root = await Directory.systemTemp.createTemp('seqpoint-target-');
+      final hosts = [
+        for (final name in ['local', 'old', 'new'])
+          SyncthingEngineHost(
+            home: Directory('${root.path}/$name'),
+            secrets: _Secrets(),
+            executable: executable,
+          ),
+      ];
+      try {
+        final oldId = (await hosts[1].localDeviceId())!;
+        final newId = (await hosts[2].localDeviceId())!;
+        final local = hosts.first;
+        var api = SyncthingClient(await local.start());
+        await local.configure(
+          vaultFolderPath: '${root.path}/data',
+          vaultFolderId: 'switch-test',
+          peerDeviceIds: [oldId],
+          paused: true,
+        );
+        await local.configure(
+          vaultFolderPath: '${root.path}/data',
+          vaultFolderId: 'switch-test',
+          peerDeviceIds: [newId],
+          paused: true,
+        );
+        var folder =
+            await api.request('GET', 'config/folders/switch-test') as Map;
+        expect(
+          (folder['devices'] as List).map((d) => d['deviceID']),
+          isNot(contains(oldId)),
+        );
+        await local.stop();
+        api = SyncthingClient(await local.start());
+        folder = await api.request('GET', 'config/folders/switch-test') as Map;
+        expect(folder['paused'], isTrue);
+        await local.configure(
+          vaultFolderPath: '${root.path}/data',
+          vaultFolderId: 'switch-test',
+          peerDeviceIds: [newId],
+        );
+        folder = await api.request('GET', 'config/folders/switch-test') as Map;
+        expect(folder['paused'], isFalse);
+        expect(
+          (await api.request('GET', 'config/devices/$newId') as Map)['paused'],
+          isFalse,
+        );
+      } finally {
+        for (final host in hosts) {
+          await host.stop();
+        }
+        await root.delete(recursive: true);
+      }
+    },
+    skip: executable == null
+        ? 'Set SEQPOINT_SYNCTHING_BIN for real engine'
+        : false,
+  );
   test(
     'damaged certificate is rejected without changing device identity',
     () async {

@@ -73,6 +73,13 @@ class _Sync extends AppSyncService {
   }
 }
 
+Future<void> _show(WidgetTester tester, Finder finder) async {
+  await tester.scrollUntilVisible(finder, 200,
+      scrollable: find.byType(Scrollable).first);
+  await Scrollable.ensureVisible(tester.element(finder), alignment: 0.5);
+  await tester.pump();
+}
+
 void main() {
   testWidgets('最近一轮逐项显示真实等待设备，完成后移除且不猜测原因', (tester) async {
     await tester.binding.setSurfaceSize(const Size(900, 1500));
@@ -82,7 +89,7 @@ void main() {
     sync.round = const SyncOutcome(pulled: 0, pushed: 0, reclaimed: 0,
       peers: [], waitingPeers: ['known-peer-id', 'unseen-peer-id']);
     await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
-    await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
+    await _show(tester, find.text('高级同步设置')); await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
     expect(find.text('known-peer-id'), findsOneWidget);
     expect(find.text('unseen-peer-id'), findsOneWidget);
     expect(find.textContaining('缺少密钥'), findsNothing);
@@ -98,12 +105,12 @@ void main() {
     final sync = _Sync(SeqDatabase.inMemory())..ready = true..paired = true;
     addTearDown(() { sync.db.close(); sync.dispose(); });
     await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
-    await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
+    await _show(tester, find.text('高级同步设置')); await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
     expect(sync.starts, 0);
-    await tester.tap(find.text('开始局域网监听')); await tester.pumpAndSettle();
+    await _show(tester, find.text('开始局域网监听')); await tester.tap(find.text('开始局域网监听')); await tester.pumpAndSettle();
     expect(sync.starts, 1); expect(find.text('正在监听端口 31415'), findsOneWidget);
     expect(tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '开始局域网监听')).onPressed, isNull);
-    await tester.tap(find.text('暂停同步')); await tester.pumpAndSettle();
+    await _show(tester, find.text('暂停同步')); await tester.tap(find.text('暂停同步')); await tester.pumpAndSettle();
     expect(sync.listeningPort, isNull);
     await tester.pumpWidget(const SizedBox()); expect(sync.observing, isFalse);
   });
@@ -115,7 +122,7 @@ void main() {
     await tester.pumpWidget(MaterialApp(home: AppScope(noteService: _Capture(),
       notes: _Notes(), items: _Items(), tags: _Tags(), search: _Search(),
       restoring: true, sync: sync, child: const SyncSettingsPage())));
-    await tester.tap(find.text('高级同步设置')); await tester.pump(const Duration(milliseconds: 300));
+    await _show(tester, find.text('高级同步设置')); await tester.tap(find.text('高级同步设置')); await tester.pump(const Duration(milliseconds: 300));
     expect(find.text('正在恢复备份，同步操作暂不可用'), findsOneWidget);
     await tester.scrollUntilVisible(find.byKey(const ValueKey('sync-host')), 200,
       scrollable: find.byType(Scrollable).first);
@@ -133,13 +140,15 @@ void main() {
     final sync = _Sync(SeqDatabase.inMemory())..failPrepare = true;
     addTearDown(() { sync.db.close(); sync.dispose(); });
     await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
-    await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
-    await tester.tap(find.text('准备本机')); await tester.pumpAndSettle();
+    await _show(tester, find.text('高级同步设置')); await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
+    await _show(tester, find.text('准备本机')); await tester.tap(find.text('准备本机')); await tester.pumpAndSettle();
     expect(sync.prepared, isTrue);
     expect(find.text('private-key-material'), findsNothing);
+    await tester.scrollUntilVisible(find.text('安全记录读取失败'), -200,
+      scrollable: find.byType(Scrollable).first);
     expect(find.text('安全记录读取失败'), findsOneWidget);
     sync.failPrepare = false;
-    await tester.tap(find.text('重新读取安全记录')); await tester.pumpAndSettle();
+    await _show(tester, find.text('重新读取安全记录')); await tester.tap(find.text('重新读取安全记录')); await tester.pumpAndSettle();
     expect(sync.prepares, 2); expect(sync.error, isNull);
   });
   testWidgets('地址验证保留输入，发布不声称对端收到', (tester) async {
@@ -148,13 +157,13 @@ void main() {
     final sync = _Sync(SeqDatabase.inMemory())..ready = true..paired = true;
     addTearDown(() { sync.db.close(); sync.dispose(); });
     await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
-    await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
+    await _show(tester, find.text('高级同步设置')); await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
     await tester.enterText(find.byKey(const ValueKey('sync-host')), 'bad address');
     await tester.enterText(find.byKey(const ValueKey('sync-port')), '4000');
-    await tester.tap(find.text('连接并同步一次')); await tester.pump();
+    await _show(tester, find.text('连接并同步一次')); await tester.tap(find.text('连接并同步一次')); await tester.pump();
     expect(sync.syncs, 0); expect(find.text('请输入有效的 IP 地址'), findsOneWidget);
     await tester.enterText(find.byKey(const ValueKey('sync-host')), '192.0.2.1');
-    await tester.tap(find.text('连接并同步一次')); await tester.pumpAndSettle();
+    await _show(tester, find.text('连接并同步一次')); await tester.tap(find.text('连接并同步一次')); await tester.pumpAndSettle();
     expect(sync.syncs, 1);
     expect(find.text('本机已发布 3 条 · 已合入 2 条'), findsOneWidget);
     expect(find.textContaining('待合并记录 1'), findsOneWidget);
@@ -165,9 +174,9 @@ void main() {
     addTearDown(() { sync.db.close(); sync.dispose(); });
     sync.gate = Completer<void>();
     await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
-    await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
+    await _show(tester, find.text('高级同步设置')); await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
     expect(sync.prepares, 0);
-    await tester.tap(find.text('准备本机')); await tester.pump();
+    await _show(tester, find.text('准备本机')); await tester.tap(find.text('准备本机')); await tester.pump();
     expect(sync.prepares, 1);
     expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, '准备本机')).onPressed, isNull);
     sync.gate!.complete(); await tester.pumpAndSettle();

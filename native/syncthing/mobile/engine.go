@@ -40,6 +40,10 @@ func configure(home, address, key string, cert tls.Certificate, logger events.Lo
 		if errors.Is(statErr, os.ErrNotExist) {
 			c.Folders = nil
 		}
+		// Application credentials must select the active target before any transfer.
+		for i := range c.Folders {
+			c.Folders[i].Paused = true
+		}
 		c.GUI.Enabled = true
 		c.GUI.RawAddress = address
 		c.GUI.RawUseTLS = false

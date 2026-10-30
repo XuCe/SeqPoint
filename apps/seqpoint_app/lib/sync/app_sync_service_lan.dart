@@ -59,6 +59,13 @@ extension _AppSyncLan on AppSyncService {
         failure = error;
       }
     }
+    if (_syncthingEnabled && !_closed && !_userPaused && !_suspended) {
+      try {
+        await syncSyncthing(automatic: true);
+      } catch (error) {
+        failure = error;
+      }
+    }
     if (failure != null) throw failure;
     return (_runtime?.mediaPending ?? false) &&
         (_runtime?.mediaTransferredBytes ?? 0) > 0;

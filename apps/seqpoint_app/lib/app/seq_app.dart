@@ -17,6 +17,7 @@ import '../mobile/today_page.dart';
 import '../shared/item_editor_page.dart';
 import '../theme/seq_theme.dart';
 import '../platform/secure_secret_store.dart';
+import '../platform/syncthing_engine_host.dart';
 import '../sync/app_sync_service.dart';
 import '../sync/sync_reconciliation.dart';
 import '../sync/sync_pairing_page.dart';
@@ -128,6 +129,8 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
     final root = Directory('${directory.path}/sync-vault');
     _sync = widget.syncFactory?.call(boot.db, root, reconciliation.afterRemoteChange) ??
         AppSyncService(db: boot.db, root: root, secrets: const SecureSecretStore(),
+            engineHost: SyncthingEngineHost(home: Directory('${directory.path}/syncthing-engine'),
+                secrets: const SecureSecretStore()),
             onCommittedChange: reconciliation.afterRemoteChange);
     unawaited(_sync!.startAutomatic());
   }

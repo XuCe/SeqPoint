@@ -8,6 +8,7 @@ import '../sync/lan_pairing_page.dart';
 import '../sync/sync_membership_controller.dart';
 import 'settings_scaffold.dart';
 import 'relay_settings.dart';
+import 'syncthing_settings.dart';
 
 /// 同步设置。
 ///
@@ -166,6 +167,8 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
           onTap: disabled || recovering || conflicted ? null : () => Navigator.of(context).push<void>(
             MaterialPageRoute(builder: (_) => LanPairingPage(service: service)))),
       ]),
+      SyncthingSettings(key: ValueKey('syncthing-${service.identity?.deviceId}-${service.relayVaultId}'),
+          service: service, disabled: disabled || recovering || conflicted),
       ExpansionTile(title: const Text('高级同步设置'), children: [
       SettingsGroup(label: '本机', children: [
         ListTile(title: Text(service.status)),
@@ -248,7 +251,6 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       const SettingsGroup(label: '其他通道', children: [
         SwitchListTile(value: false, onChanged: null, title: Text('本地目录'),
           subtitle: Text('尚未接入')),
-        ListTile(enabled: false, title: Text('Syncthing 引擎'), subtitle: Text('尚未接入')),
       ]),
     ]);
   }

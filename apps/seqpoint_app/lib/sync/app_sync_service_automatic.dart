@@ -23,13 +23,14 @@ extension _AppSyncAutomatic on AppSyncService {
     if(_closed || vault!=relayVaultId) return;
     _automaticEndpoint=endpoint;
     await _loadLanTargets();
+    await _loadSyncthingTarget();
     _automatic??=AutoSyncScheduler(revision:() {
       if(_closed || !db.raw.autocommit) return null;
       final row=db.raw.select('SELECT hlc_millis,hlc_counter,media_enabled FROM sync_local WHERE id=1').single;
       return '${row['hlc_millis']}:${row['hlc_counter']}:${row['media_enabled']}';
-    },canRun:()=>!_closed && !_busy && !_userPaused && !_suspended && _automaticEnabled && canSync && (_automaticEndpoint.isNotEmpty || (_lanEnabled && _lanPeers.isNotEmpty)),
+    },canRun:()=>!_closed && !_busy && !_userPaused && !_suspended && _automaticEnabled && canSync && (_syncthingEnabled || _automaticEndpoint.isNotEmpty || (_lanEnabled && _lanPeers.isNotEmpty)),
       work:_automaticRound);
-    _automatic!.idleInterval=Duration(seconds:_lanEnabled?5:60);
+    _automatic!.idleInterval=Duration(seconds:_lanEnabled || _syncthingEnabled?5:60);
     if(!_userPaused && !_suspended) _automatic!.start();
     _notifyAutomatic();
   }

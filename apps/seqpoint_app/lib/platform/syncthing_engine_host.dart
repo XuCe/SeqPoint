@@ -64,6 +64,7 @@ class SyncthingEngineHost implements SyncEngineHost {
     required String vaultFolderPath,
     required String vaultFolderId,
     required List<String> peerDeviceIds,
+    bool paused = false,
     String? discoveryUrl,
     String? relayUrl,
   }) => _run(() async {
@@ -76,11 +77,15 @@ class SyncthingEngineHost implements SyncEngineHost {
       if (!RegExp(r'^[A-Z2-7]{7}(-[A-Z2-7]{7}){7}$').hasMatch(id)) {
         throw FormatException('Invalid Syncthing device ID');
       }
-      if ((config['devices'] as List).any((d) => d['deviceID'] == id)) continue;
+      if ((config['devices'] as List).any((d) => d['deviceID'] == id)) {
+        await api.request('PATCH', 'config/devices/$id', {'paused': paused});
+        continue;
+      }
       final device = await api.request('GET', 'config/defaults/device') as Map;
       await api.request('PUT', 'config/devices/$id', {
         ...device,
         'deviceID': id,
+        'paused': paused,
       });
     }
     final folders = (config['folders'] as List).where(
@@ -92,12 +97,11 @@ class SyncthingEngineHost implements SyncEngineHost {
     if (folders.isNotEmpty && folder['path'] != vaultFolderPath) {
       throw StateError('Syncthing folder belongs to another path');
     }
-    final devices = List<Map>.from(folder['devices'] as List);
-    for (final id in peerDeviceIds) {
-      if (!devices.any((d) => d['deviceID'] == id)) {
-        devices.add({'deviceID': id});
-      }
-    }
+    final self =
+        (await api.request('GET', 'system/status') as Map)['myID'] as String;
+    final devices = [
+      for (final id in {self, ...peerDeviceIds}) {'deviceID': id},
+    ];
     await api.request(
       'PUT',
       'config/folders/${Uri.encodeComponent(vaultFolderId)}',
@@ -107,6 +111,7 @@ class SyncthingEngineHost implements SyncEngineHost {
         'path': vaultFolderPath,
         'label': 'SeqPoint',
         'type': 'sendreceive',
+        'paused': paused,
         'devices': devices,
       },
     );
@@ -146,6 +151,7 @@ class SyncthingEngineHost implements SyncEngineHost {
         '--home=${home.absolute.path}',
         '--no-browser',
         '--no-restart',
+        '--paused',
         '--no-upgrade',
         '--gui-address=${endpoint.baseUrl}',
         '--log-level=WARN',

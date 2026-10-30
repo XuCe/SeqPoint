@@ -23,6 +23,7 @@ abstract interface class SyncEngineHost {
     required String vaultFolderPath,
     required String vaultFolderId,
     required List<String> peerDeviceIds,
+    bool paused = false,
     String? discoveryUrl,
     String? relayUrl,
   });

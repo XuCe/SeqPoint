@@ -12,6 +12,7 @@ import 'sync_membership_store.dart';
 import 'sync_tls_store.dart';
 import 'lan_pairing_link.dart';
 import 'lan_pairing_network.dart';
+import 'syncthing_client.dart';
 
 part 'app_sync_service_pairing.dart';
 part 'app_sync_service_recovery.dart';
@@ -19,11 +20,24 @@ part 'app_sync_service_revocation.dart';
 part 'app_sync_service_automatic.dart';
 part 'app_sync_service_lan_pairing.dart';
 part 'app_sync_service_lan.dart';
+part 'app_sync_service_syncthing.dart';
 
 /// Main-engine owner; construction does not touch storage or the network.
 class AppSyncService extends ChangeNotifier {
   AppSyncService({required this.db, required this.root, required this.secrets,
-      this.onCommittedChange});
+      this.onCommittedChange, this.engineHost});
+  final SyncEngineHost? engineHost;
+  bool _syncthingEnabled = false;
+  String? _syncthingSession;
+  String _syncthingMessage = '';
+  bool get syncthingSupported => engineHost?.isSupported ?? false;
+  bool get syncthingEnabled => _syncthingEnabled;
+  String get syncthingMessage => _syncthingMessage;
+  Future<String> loadSyncthingAddress() async => (await _readSyncthing())?.address ?? '';
+  Future<void> saveSyncthing({required String address, required String apiKey}) =>
+      _saveSyncthing(address: address, apiKey: apiKey);
+  Future<void> setSyncthingEnabled(bool enabled) => _setSyncthingEnabled(enabled);
+  Future<SyncOutcome> syncSyncthing({bool automatic = false}) => _syncSyncthing(automatic: automatic);
   final SeqDatabase db;
   final Directory root;
   final SecretStore secrets;
@@ -58,7 +72,17 @@ class AppSyncService extends ChangeNotifier {
   int get transferredBytes=>_runtime?.mediaTransferredBytes??0;
   Future<void> startAutomatic()=>_startAutomatic();
   void _notifyAutomatic()=>notifyListeners();
-  void suspendAutomatic() {_suspended=true;_automatic?.suspend();}
+  void suspendAutomatic() {
+    _suspended=true;_automatic?.suspend();
+    if (!_closed && engineHost != null) {
+      unawaited(_run(() async {
+        await _stopSyncthing();
+        if (_syncthingEnabled) _syncthingMessage='跨网同步已暂停';
+      }).catchError((Object _) {
+        if (!_closed) { _error='跨网同步暂停失败';notifyListeners(); }
+      }));
+    }
+  }
   Future<void> resumeAutomatic() async {
     if(_closed) return;_suspended=false;
     try {
@@ -183,6 +207,7 @@ class AppSyncService extends ChangeNotifier {
 
   Future<void> _selectLocal(LocalDeviceIdentity local) async {
     if (_local?.keys.deviceId != local.keys.deviceId) {
+      await _stopSyncthing(); _syncthingEnabled=false; _syncthingMessage='';
       await _runtime?.stop(); await _controller?.stop();
       await _membershipChanges?.cancel();
       _runtime = null; _controller = null; _baselineReady = false;
@@ -361,7 +386,10 @@ class AppSyncService extends ChangeNotifier {
   Future<void> pause() {
     _userPaused=true;_automatic?.suspend();
     return _run(() async {
+      _userPaused=true;_automatic?.suspend();
       await _runtime?.pause();_listeningPort=null;_paused=true;
+      await _stopSyncthing();
+      if (_syncthingEnabled) _syncthingMessage='跨网同步已暂停';
       if(!await (await SharedPreferences.getInstance()).setBool('sync.user.paused',true)) throw StateError('同步暂停状态保存失败');
     });
   }
@@ -386,6 +414,7 @@ class AppSyncService extends ChangeNotifier {
     await _automatic?.stop();
     cancelPairing();
     await _runtime?.stop();
+    await _stopSyncthing();
     await _controller?.stop();
     await _membershipChanges?.cancel();
     _listeningPort = null; notifyListeners();
