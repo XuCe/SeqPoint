@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,6 +7,7 @@ import 'package:seqpoint_platform/seqpoint_platform.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../app/app_scope.dart';
+import '../../updates/full_update_installer.dart';
 import '../../settings/settings_view.dart';
 import '../../shared/note_search.dart';
 import '../sticky/note_editor.dart';
@@ -29,13 +31,15 @@ class MainPanel extends StatefulWidget {
   State<MainPanel> createState() => _MainPanelState();
 }
 
-class _MainPanelState extends State<MainPanel> with WindowListener {
+class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindingObserver {
   PanelSection _section = PanelSection.today;
   int _revision = 0;
   StreamSubscription<HotkeyAction>? _hotkeySubscription;
   bool _opening = false;
   bool _backgroundReady = false;
   bool _quitting = false;
+  bool _readyToTerminate = false;
+  Future<AppExitResponse>? _exitRequest;
   bool get _restoring => AppScope.of(context).restoring;
   Future<void>? _hotkeyRegistration, _trayInitialization;
   final _bindings = <HotkeyAction, HotkeyBinding>{};
@@ -66,6 +70,53 @@ class _MainPanelState extends State<MainPanel> with WindowListener {
     }
   }
 
+  Future<void> _prepareFullUpdate() async {
+    if (!mounted || _quitting || _restoring) {
+      throw StateError('应用正在关闭或恢复');
+    }
+    final windows = AppScope.of(context).windows;
+    if (windows == null) return;
+    windows.pauseStickyOpening(true);
+    try {
+      if ((await windows.otherWindowIds()).isNotEmpty) {
+        throw StateError('请先保存并关闭所有便签窗口');
+      }
+    } finally {
+      windows.pauseStickyOpening(false);
+    }
+  }
+
+  @override
+  Future<AppExitResponse> didRequestAppExit() => _exitRequest ??=
+      _prepareNativeExit().whenComplete(() => _exitRequest = null);
+
+  Future<AppExitResponse> _prepareNativeExit() async {
+    if (_readyToTerminate) return AppExitResponse.exit;
+    if (!mounted || _quitting || _restoring) return AppExitResponse.cancel;
+    final scope = AppScope.of(context);
+    try {
+      await _prepareFullUpdate();
+      _quitting = true;
+      scope.onQuittingChanged?.call(true);
+      await scope.beforeQuit?.call();
+      _readyToTerminate = true;
+      return AppExitResponse.exit;
+    } catch (_) {
+      _quitting = false;
+      scope.onQuittingChanged?.call(false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('暂时无法安全退出，请保存并关闭便签或稍后重试')));
+      }
+      return AppExitResponse.cancel;
+    }
+  }
+
+  Future<void> _quitForUpdate() async {
+    await _prepareFullUpdate();
+    await _quit();
+  }
+
   Future<void> _quit() async {
     if (_quitting || !mounted || _restoring) return;
     final scope = AppScope.of(context);
@@ -92,6 +143,7 @@ class _MainPanelState extends State<MainPanel> with WindowListener {
     } finally {
       _backgroundReady = false;
       try {
+        _readyToTerminate = true;
         await windowManager.destroy();
       } finally {
         onQuittingChanged?.call(false);
@@ -181,6 +233,9 @@ class _MainPanelState extends State<MainPanel> with WindowListener {
   void initState() {
     super.initState();
     windowManager.addListener(this);
+    WidgetsBinding.instance.addObserver(this);
+    fullUpdateInstaller.onPrepare = _prepareFullUpdate;
+    fullUpdateInstaller.onQuit = _quitForUpdate;
     _hotkeySubscription = widget.hotkeys?.actions.listen(_onHotkey);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _hotkeyRegistration = _registerHotkeys();
@@ -190,9 +245,12 @@ class _MainPanelState extends State<MainPanel> with WindowListener {
 
   @override
   void dispose() {
+    fullUpdateInstaller.onPrepare = null;
+    fullUpdateInstaller.onQuit = null;
     unawaited(_hotkeySubscription?.cancel());
     if (!_quitting) unawaited(_releaseHotkeys());
     windowManager.removeListener(this);
+    WidgetsBinding.instance.removeObserver(this);
     if (_backgroundReady) {
       unawaited(windowManager.setPreventClose(false));
       unawaited(widget.tray?.dispose());

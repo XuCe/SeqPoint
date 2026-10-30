@@ -35,7 +35,10 @@ jobs:
       - name: 校验发布版本与配置
         env:
           SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+          WINSPARKLE_PRIVATE_KEY: ${{ secrets.WINSPARKLE_PRIVATE_KEY }}
         run: |
+          test -n "$SPARKLE_PRIVATE_KEY" && test -n "$WINSPARKLE_PRIVATE_KEY" || { echo '::error::缺少完整更新签名 Secrets'; exit 1; }
           [[ "$RELEASE_LABEL" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] || { echo '::error::版本标签格式无效'; exit 1; }
           version=$(sed -n 's/^version: //p' apps/seqpoint_app/pubspec.yaml)
           if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_NAME" != "v${version%+*}" ]; then
@@ -49,6 +52,9 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+
+      - name: 完整更新元数据测试
+        run: python3 scripts/updates/test_appcast.py
 
       - name: 密钥扫描
         run: scripts/scan_secrets.sh
@@ -238,6 +244,16 @@ jobs:
             "dist/${APP_NAME}-${v}-macos-arm64.dmg"
           ls -lh dist
 
+      - name: 签名完整更新包并生成 macOS 更新信息
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          version=$(sed -n 's/^version: //p' apps/seqpoint_app/pubspec.yaml)
+          python3 scripts/updates/appcast.py --platform macos \
+            --version "$version" --tag "$RELEASE_LABEL" \
+            --asset "dist/${APP_NAME}-${RELEASE_LABEL}-macos-arm64.dmg" \
+            --output "dist/${APP_NAME}-${RELEASE_LABEL}-appcast-macos.xml"
+
       - uses: actions/upload-artifact@v4
         with:
           name: macos
@@ -282,6 +298,30 @@ jobs:
           $src = 'apps/seqpoint_app/build/windows/x64/runner/Release'
           Compress-Archive -Path "$src/*" -DestinationPath "dist/$env:APP_NAME-$v-windows-x64.zip"
           Get-ChildItem dist
+
+      - name: 制作 Windows 安装器并签名更新信息
+        shell: pwsh
+        env:
+          WINSPARKLE_PRIVATE_KEY: ${{ secrets.WINSPARKLE_PRIVATE_KEY }}
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}/Inno Setup 6/ISCC.exe"
+          if (!(Test-Path $iscc)) {
+            choco install innosetup --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+          }
+          if (!(Get-Command openssl -ErrorAction SilentlyContinue)) {
+            choco install openssl --yes --no-progress
+            if ($LASTEXITCODE -ne 0) { throw 'OpenSSL installation failed' }
+            $env:PATH += ';C:/Program Files/OpenSSL-Win64/bin'
+          }
+          $version = ((Get-Content apps/seqpoint_app/pubspec.yaml | Select-String '^version:').Line -replace '^version:\s*', '').Trim()
+          $displayVersion = $version.Split('+')[0]
+          $src = (Resolve-Path 'apps/seqpoint_app/build/windows/x64/runner/Release').Path
+          $out = (Resolve-Path dist).Path
+          & $iscc /Q "/DMyAppVersion=$displayVersion" "/DSourceDir=$src" "/O$out" "/F$env:APP_NAME-$env:RELEASE_LABEL-windows-x64-setup" scripts/updates/windows-installer.iss
+          if ($LASTEXITCODE -ne 0) { throw 'Installer compilation failed' }
+          python scripts/updates/appcast.py --platform windows --version $version --tag $env:RELEASE_LABEL --asset "dist/$env:APP_NAME-$env:RELEASE_LABEL-windows-x64-setup.exe" --output "dist/$env:APP_NAME-$env:RELEASE_LABEL-appcast-windows.xml"
+          if ($LASTEXITCODE -ne 0) { throw 'Update signing failed' }
 
       - uses: actions/upload-artifact@v4
         with:
@@ -374,10 +414,12 @@ jobs:
             | Android（arm64 / armv7） | `*-android.apk` |
             | iOS（未签名，仅供后续签名） | `*-ios-unsigned.xcarchive.zip` |
             | macOS（Apple 芯片） | `*-macos-arm64.dmg` |
-            | Windows 64 位 | `*-windows-x64.zip` |
+            | Windows 64 位（推荐，可自动更新） | `*-windows-x64-setup.exe` |
+            | Windows 便携版 | `*-windows-x64.zip` |
             | Linux ARM64 | `*-linux-arm64.tar.gz` |
 
-            `SHA256SUMS.txt` 用于校验下载完整性。
+            `SHA256SUMS.txt` 用于校验下载完整性。`*-appcast-*.xml` 供应用原生更新器使用。
+            完整更新会在应用内下载并启动安装；Windows 建议先使用安装器安装。
 
             > iOS 归档不能直接安装，需后续签名及分发；macOS/Windows 暂未做分发签名。
             > macOS 首次打开需在「系统设置 → 隐私与安全性」中允许，

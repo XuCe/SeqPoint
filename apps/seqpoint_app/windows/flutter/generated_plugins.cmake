@@ -4,6 +4,7 @@
 
 list(APPEND FLUTTER_PLUGIN_LIST
   audioplayers_windows
+  auto_updater_windows
   desktop_multi_window
   flutter_secure_storage_windows
   hotkey_manager_windows

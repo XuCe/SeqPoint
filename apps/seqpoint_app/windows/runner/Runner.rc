@@ -3,6 +3,8 @@
 #pragma code_page(65001)
 #include "resource.h"
 
+DSAPub DSAPEM "resources\\update_dsa_pub.pem"
+
 #define APSTUDIO_READONLY_SYMBOLS
 /////////////////////////////////////////////////////////////////////////////
 //

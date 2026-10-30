@@ -35,6 +35,10 @@ dependencies:
   timezone: ^0.11.1
   tray_manager: ^0.5.3
   window_manager: ^0.5.2
+  package_info_plus: ^9.0.1
+  pub_semver: ^2.2.1
+  auto_updater: ^1.0.0
+  ota_update: ^7.1.0
 
 dev_dependencies:
   flutter_test:

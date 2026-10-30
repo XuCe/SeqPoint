@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:shorebird_code_push/shorebird_code_push.dart';
 
 import 'settings_scaffold.dart';
+import 'full_update_section.dart';
 
 class UpdateSettingsPage extends StatefulWidget {
   const UpdateSettingsPage({super.key, this.updater});
@@ -47,10 +48,11 @@ class _UpdateSettingsPageState extends State<UpdateSettingsPage> {
   Widget build(BuildContext context) => SettingsScaffold(
     title: '应用更新',
     footnote:
-        '支持 Android、iOS、macOS 和 Windows。'
-        '更新将在下次启动时生效。桌面端请从托盘退出后重新打开，关闭窗口不会退出应用。',
+        '热更新补丁无需重新安装；完整版本通过系统安装器更新。'
+        '补丁将在下次启动时生效。桌面端请从托盘退出后重新打开，关闭窗口不会退出应用。',
     children: [
       SettingsGroup(
+        label: '热更新补丁',
         children: [
           ListTile(
             leading: const Icon(Icons.system_update_alt),
@@ -80,6 +82,7 @@ class _UpdateSettingsPageState extends State<UpdateSettingsPage> {
           if (_busy) const LinearProgressIndicator(),
         ],
       ),
+      const FullUpdateSection(),
     ],
   );
 }

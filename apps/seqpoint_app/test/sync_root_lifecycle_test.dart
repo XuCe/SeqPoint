@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show AppExitResponse;
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -113,6 +114,31 @@ void main() {
     expect(current.notes.active().single.rawContent, '候选数据');
     expect(() => scope.database!.raw.select('SELECT 1'), throwsStateError);
     await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle();
+  });
+  testWidgets('系统退出请求等待同步排空，失败取消且可重试', (tester) async {
+    final boot = await Bootstrap.run(dbPath: ':memory:');
+    final gate = Completer<void>();
+    var reject = true, finished = false;
+    const channel = MethodChannel('window_manager');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (_) async => null);
+    addTearDown(() {
+      boot.dispose();
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, null);
+    });
+    await tester.pumpWidget(AppScope(noteService: boot.noteService, notes: boot.notes,
+      items: boot.items, tags: boot.tags, search: boot.search,
+      beforeQuit: () async { if (reject) throw StateError('test'); await gate.future; },
+      child: const MaterialApp(home: MainPanel())));
+    await tester.pumpAndSettle();
+    expect(await tester.binding.handleRequestAppExit(), AppExitResponse.cancel);
+    reject = false;
+    final result = tester.binding.handleRequestAppExit().then((value) { finished = true; return value; });
+    await tester.pump();
+    expect(finished, isFalse);
+    gate.complete();
+    expect(await result, AppExitResponse.exit);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.pumpAndSettle();
   });
   testWidgets('退出等待同步排空，失败保留主窗且可重试', (tester) async {
     final boot = await Bootstrap.run(dbPath: ':memory:');
