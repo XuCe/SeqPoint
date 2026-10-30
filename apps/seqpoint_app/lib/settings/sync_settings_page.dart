@@ -150,9 +150,10 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     return SettingsScaffold(title: '同步',
       footnote: '配对后通过加密连接交换数据。本机上传不代表对端已收到。'
         '旧日志在检查点验证完成后回收，离线设备可从检查点继续同步。', children: [
+      if (_error ?? service.error case final message?)
+        ListTile(leading: const Icon(Icons.error_outline), title: Text(message)),
+      if (!recovering && !conflicted) ...[
       SettingsGroup(label: '局域网同步', children: [
-        if (_error ?? service.error case final message?)
-          ListTile(leading: const Icon(Icons.error_outline), title: Text(message)),
         for (final peer in service.lanPeers) ListTile(
           leading: const Icon(Icons.devices), title: Text('设备 ${peer.deviceId.substring(0, 8)}'),
           subtitle: Text('${peer.host}:${peer.port} · ${service.lanEnabled ? '自动同步已开启' : '已暂停'}')),
@@ -169,7 +170,10 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
       ]),
       SyncthingSettings(key: ValueKey('syncthing-${service.identity?.deviceId}-${service.relayVaultId}'),
           service: service, disabled: disabled || recovering || conflicted),
-      ExpansionTile(title: const Text('高级同步设置'), children: [
+      ],
+      ExpansionTile(key: ValueKey('advanced-$recovering-$conflicted'),
+        initiallyExpanded: recovering || conflicted,
+        title: Text(recovering || conflicted ? '恢复同步' : '高级同步设置'), children: [
       SettingsGroup(label: '本机', children: [
         ListTile(title: Text(service.status)),
         if (restoring) const ListTile(title: Text('正在恢复备份，同步操作暂不可用')),

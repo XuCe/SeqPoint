@@ -59,6 +59,30 @@ Future<void> _mount(WidgetTester tester, _Sync sync, {bool restoring = false}) a
   await tester.pumpWidget(MaterialApp(home: restoring ? AppScope(noteService: _Capture(),
     notes: _Notes(), items: _Items(), tags: _Tags(), search: _Search(), restoring: true,
     child: page) : page));
+  await _showDevices(tester);
+}
+
+Future<void> _showDevices(WidgetTester tester) async {
+  if (find.text('恢复同步').evaluate().isEmpty) {
+    await tester.scrollUntilVisible(find.text('高级同步设置'), 200,
+      scrollable: find.byType(Scrollable).first);
+    await tester.pump(const Duration(milliseconds: 300));
+    if (find.text('撤销').evaluate().isEmpty) {
+      await tester.tap(find.text('高级同步设置'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 300));
+    }
+  }
+  await tester.scrollUntilVisible(find.text('撤销'), 200,
+    scrollable: find.byType(Scrollable).first);
+  await Scrollable.ensureVisible(tester.element(find.text('撤销')), alignment: 0.5);
+  await tester.pump(const Duration(milliseconds: 300));
+}
+
+Future<void> _showMessage(WidgetTester tester, String message) async {
+  await tester.scrollUntilVisible(find.text(message), -200,
+    scrollable: find.byType(Scrollable).first);
+  await tester.pump();
 }
 
 void main() {
@@ -71,7 +95,7 @@ void main() {
       builder: (context, child) => MediaQuery(data: MediaQuery.of(context).copyWith(
         textScaler: const TextScaler.linear(2), disableAnimations: true), child: child!),
       home: SyncSettingsPage(service: sync)));
-    await tester.ensureVisible(find.text('撤销')); await tester.pumpAndSettle();
+    await _showDevices(tester);
     await tester.tap(find.text('撤销')); await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     await tester.binding.setSurfaceSize(const Size(667, 375)); await tester.pumpAndSettle();
@@ -94,6 +118,7 @@ void main() {
     await tester.tap(find.text('撤销')); await tester.pumpAndSettle();
     await tester.tap(find.text('确认撤销')); await tester.pumpAndSettle();
     expect(sync.calls, 1);
+    await _showMessage(tester, '撤销失败，安全记录未保存');
     expect(find.text('撤销失败，安全记录未保存'), findsOneWidget);
     expect(find.textContaining('private-signing-material'), findsNothing);
     expect(find.text('设备已撤销'), findsNothing);
@@ -118,6 +143,7 @@ void main() {
     sync.conflicted = true; sync.notifyListeners(); await tester.pump();
     await tester.tap(find.text('确认撤销')); await tester.pumpAndSettle();
     expect(sync.calls, 0);
+    await _showMessage(tester, '成员状态已变化，请重新核对后再撤销');
     expect(find.text('成员状态已变化，请重新核对后再撤销'), findsOneWidget);
   });
   testWidgets('明确确认后仅提交捕获的完整peer和版本', (tester) async {
@@ -141,6 +167,7 @@ void main() {
     sync.version = Object(); sync.notifyListeners(); await tester.pump();
     await tester.tap(find.text('确认撤销')); await tester.pumpAndSettle();
     expect(sync.calls, 0);
+    await _showMessage(tester, '成员状态已变化，请重新核对后再撤销');
     expect(find.text('成员状态已变化，请重新核对后再撤销'), findsOneWidget);
   });
   testWidgets('设备撤销完整展示ID，点击后取消不提交', (tester) async {

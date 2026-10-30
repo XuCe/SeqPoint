@@ -89,6 +89,7 @@ class _Brand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final title = context.findAncestorWidgetOfExactType<Title>()?.title;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
       child: Row(
@@ -97,7 +98,7 @@ class _Brand extends StatelessWidget {
             excludeFromSemantics: true),
           const SizedBox(width: 8),
           Expanded(child: Text(
-            context.findAncestorWidgetOfExactType<Title>()?.title ?? '序点',
+            title == null || title.isEmpty ? '序点' : title,
             maxLines: 2,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontFamily: SeqFonts.serif.first,
