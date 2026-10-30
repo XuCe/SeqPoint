@@ -1,0 +1,33 @@
+# User-mandated exclusions at any depth.
+**/node_modules/
+**/target/
+**/dist/
+**/build/
+**/.next/
+**/*-lock.json
+**/pnpm-lock.yaml
+**/go.sum
+# Exclude mock/fixture data entirely for this basic index.
+**/*mock*/
+**/*Mock*/
+**/*mock*
+**/*Mock*
+**/fixtures/
+**/testdata/
+# Generated files, dependencies, local state and binary documents.
+**/.git/
+**/.gitnexus/
+**/.dart_tool/
+**/Pods/
+**/ephemeral/
+**/vendor/
+**/.idea/
+**/.DS_Store
+**/pubspec.lock
+**/*.g.dart
+**/*generated*
+**/*.docx
+**/*.pdf
+**/*.db
+**/*.sqlite*
+.codex/

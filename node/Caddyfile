@@ -1,0 +1,12 @@
+{$SEQPOINT_DOMAIN} {
+    @relay path /seqpoint/relay/v1/* /seqpoint/relay/v2/*
+    handle @relay {
+        request_body {
+            max_size 12MiB
+        }
+        reverse_proxy node:8080
+    }
+    handle {
+        respond "SeqPoint relay is running" 200
+    }
+}

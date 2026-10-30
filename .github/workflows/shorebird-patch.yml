@@ -1,0 +1,111 @@
+name: shorebird-patch
+
+on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: '目标平台；iOS 尚无签名基线，暂不开放线上补丁'
+        type: choice
+        options: [android, macos, windows]
+        required: true
+      release_version:
+        description: '必须精确指定已发布基线，例如 0.1.0+1'
+        type: string
+        required: true
+      track:
+        description: '先用 staging 验证；stable 会推送给正式用户'
+        type: choice
+        options: [staging, stable]
+        default: staging
+      dry_run:
+        description: '仅编译校验，不上传补丁'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: shorebird-patch-${{ inputs.platform }}-${{ inputs.release_version }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 校验目标基线
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?\+[0-9]+$ ]] || { echo '::error::请输入完整基线版本，例如 0.1.0+1'; exit 1; }
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: 分析与测试
+        run: bash scripts/ci_local.sh
+
+  patch:
+    needs: verify
+    runs-on: ${{ inputs.platform == 'windows' && 'windows-latest' || inputs.platform == 'macos' && 'macos-15' || 'ubuntu-latest' }}
+    env:
+      PATCH_PLATFORM: ${{ inputs.platform }}
+      RELEASE_VERSION: ${{ inputs.release_version }}
+      PATCH_TRACK: ${{ inputs.track }}
+      DRY_RUN: ${{ inputs.dry_run }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shorebirdtech/setup-shorebird@v1
+        with:
+          cache: true
+      - uses: actions/setup-java@v4
+        if: inputs.platform == 'android'
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: 复用 Android 基线签名
+        if: inputs.platform == 'android'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64" && test -n "$STORE_PASSWORD" && test -n "$KEY_ALIAS" && test -n "$KEY_PASSWORD"
+          cd apps/seqpoint_app/android
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > seqpoint-release.jks
+          printf 'storeFile=seqpoint-release.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$STORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > key.properties
+      - name: 构建并发布补丁（Android / macOS）
+        if: inputs.platform != 'windows'
+        working-directory: apps/seqpoint_app
+        env:
+          SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+        run: |
+          test -n "$SHOREBIRD_TOKEN"
+          flags=()
+          if [ "$DRY_RUN" = true ]; then flags+=(--dry-run); fi
+          if [ "$PATCH_PLATFORM" = macos ]; then
+            export FLUTTER_XCODE_CODE_SIGN_IDENTITY='-'
+            export FLUTTER_XCODE_CODE_SIGN_STYLE=Manual
+            export FLUTTER_XCODE_DEVELOPMENT_TEAM=''
+          fi
+          shorebird patch "$PATCH_PLATFORM" --release-version "$RELEASE_VERSION" --track "$PATCH_TRACK" "${flags[@]}"
+      - name: 构建并发布补丁（Windows）
+        if: inputs.platform == 'windows'
+        working-directory: apps/seqpoint_app
+        shell: pwsh
+        env:
+          SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
+        run: |
+          if (-not $env:SHOREBIRD_TOKEN) { throw 'Missing SHOREBIRD_TOKEN' }
+          $flags = @()
+          if ($env:DRY_RUN -eq 'true') { $flags += '--dry-run' }
+          shorebird patch windows --release-version $env:RELEASE_VERSION --track $env:PATCH_TRACK @flags
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: 清理 Android 签名材料
+        if: always() && inputs.platform == 'android'
+        run: rm -f apps/seqpoint_app/android/key.properties apps/seqpoint_app/android/seqpoint-release.jks

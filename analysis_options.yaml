@@ -1,0 +1,22 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  errors:
+    unused_import: error
+    unused_local_variable: error
+  exclude:
+    - "**/*.g.dart"
+    - "**/*.freezed.dart"
+
+linter:
+  rules:
+    # 关闭：本项目大量使用「私有字段 + 公开命名参数」的构造函数
+    # （如 NoteService({required NoteRepository notes}) : _notes = notes），
+    # 改用 this._notes 会把参数名暴露成 _notes，破坏调用方可读性。
+    prefer_initializing_formals: false
+
+    prefer_final_locals: true
+    avoid_print: true
+    always_declare_return_types: true
+    prefer_single_quotes: true
+    unawaited_futures: true

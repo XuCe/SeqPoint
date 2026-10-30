@@ -1,0 +1,24 @@
+name: seqpoint_platform
+description: 序点 SeqPoint 平台能力抽象：全局快捷键、托盘、多窗口、通知、选中文字、小组件。接口在此，实现按端注入。
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: ^3.13.0
+
+resolution: workspace
+
+dependencies:
+  flutter:
+    sdk: flutter
+  seqpoint_core:
+    path: ../seqpoint_core
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^5.0.0
+
+flutter:
+  plugin:
+    platforms: {}

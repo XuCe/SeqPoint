@@ -1,0 +1,82 @@
+import 'dart:io';
+import 'dart:ui' as ui;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:seqpoint_app/app/app_scope.dart';
+import 'package:seqpoint_app/app/bootstrap.dart';
+import 'package:seqpoint_app/desktop/panel/main_panel.dart';
+import 'package:seqpoint_app/desktop/sticky/sticky_window.dart';
+import 'package:seqpoint_app/theme/seq_theme.dart';
+
+/// 把当前界面渲染成 PNG，供人工查看实际效果。
+///
+/// 这不是断言用的 golden 测试，只是"把应用跑起来看一眼"的可重复替代品：
+/// macOS 上应用窗口可能落在另一个桌面空间，截屏不可靠。
+Future<void> _shot(WidgetTester tester, String name) async {
+  final boundary = tester.firstRenderObject<RenderRepaintBoundary>(
+    find.byType(RepaintBoundary),
+  );
+  final image = await boundary.toImage(pixelRatio: 2);
+  final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+  final dir = Directory(const String.fromEnvironment('SHOT_DIR',
+      defaultValue: 'build/shots'));
+  dir.createSync(recursive: true);
+  File('${dir.path}/$name.png').writeAsBytesSync(bytes!.buffer.asUint8List());
+}
+
+Future<Widget> _mount(Widget child) async {
+  final boot = await Bootstrap.run();
+  return MaterialApp(
+    theme: seqLightTheme(),
+    debugShowCheckedModeBanner: false,
+    home: RepaintBoundary(
+      child: AppScope(
+        noteService: boot.noteService,
+        notes: boot.notes,
+        items: boot.items,
+        tags: boot.tags,
+        search: boot.search,
+        child: child,
+      ),
+    ),
+  );
+}
+
+void main() {
+  testWidgets('导出主面板画面', (tester) async {
+    tester.view.physicalSize = const Size(2000, 1400);
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+
+    await tester.pumpWidget(await _mount(const MainPanel()));
+    await tester.pumpAndSettle();
+    await _shot(tester, 'main_panel');
+  });
+
+  testWidgets('导出便签窗画面', (tester) async {
+    tester.view.physicalSize = const Size(720, 600);
+    tester.view.devicePixelRatio = 2;
+    addTearDown(tester.view.reset);
+
+    final boot = await Bootstrap.run();
+    final note = boot.notes.active().first;
+    await tester.pumpWidget(MaterialApp(
+      theme: seqLightTheme(),
+      debugShowCheckedModeBanner: false,
+      home: RepaintBoundary(
+        child: AppScope(
+          noteService: boot.noteService,
+          notes: boot.notes,
+          items: boot.items,
+          tags: boot.tags,
+          search: boot.search,
+          child: StickyWindow(noteId: note.id),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await _shot(tester, 'sticky_window');
+  });
+}

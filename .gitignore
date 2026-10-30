@@ -1,0 +1,36 @@
+.DS_Store
+build/
+.dart_tool/
+.idea/
+.vscode/
+*.iml
+pubspec.lock
+**/.flutter-plugins
+**/.flutter-plugins-dependencies
+**/ephemeral/
+**/Pods/
+**/xcuserdata/
+*.env
+*.key
+*.pem
+/vendor/syncthing/
+docs/design/preview/
+
+# Android 发布签名——绝不入库。
+# 丢了这两个文件就无法为已发布的应用推送更新，请另行备份。
+**/key.properties
+**/*.jks
+**/*.keystore
+
+# Local tooling, runtime data and environment overrides.
+.gitnexus/
+.codex/
+scripts/sync_acceptance/result-*.json
+coverage/
+*.log
+.env.*
+!.env.example
+!.env.sample
+*.db
+*.db-*
+*.sqlite*

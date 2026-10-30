@@ -1,0 +1,5 @@
+.env
+node.json
+seqpoint-node
+data/
+backups/

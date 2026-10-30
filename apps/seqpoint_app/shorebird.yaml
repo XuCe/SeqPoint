@@ -1,0 +1,3 @@
+# Four platforms share this app; releases and patches are platform-specific.
+app_id: 7521be30-6088-44fe-824c-5f1622031be7
+auto_update: true
