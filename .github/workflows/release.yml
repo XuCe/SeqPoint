@@ -305,7 +305,8 @@ jobs:
             clang cmake ninja-build pkg-config \
             libgtk-3-dev liblzma-dev libstdc++-12-dev \
             libsecret-1-dev libjsoncpp-dev libayatana-appindicator3-dev \
-            libnotify-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev
+            libnotify-dev libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
+            libkeybinder-3.0-dev
         # 各依赖对应：GTK 壳、flutter_secure_storage(libsecret)、
         # tray_manager(appindicator)、flutter_local_notifications_linux(libnotify)、audioplayers(GStreamer)
 
