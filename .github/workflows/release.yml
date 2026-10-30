@@ -439,6 +439,16 @@ jobs:
           draft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           body: |
+            ## 本版本
+
+            - 局域网双向同步：电脑出示二维码供手机扫描，也可输入手机的 IP:端口，核对短码并允许后同步。
+            - Syncthing 跨网同步：先局域网配对，再填写 NAS 管理地址与 API Key，应用自动授权共享加密目录。
+            - Android、macOS、Windows 支持应用内下载并安装完整更新；系统要求的安装确认仍需用户操作。
+            - 使用新版序点图标，客户端标题显示“序点＋版本号”。
+
+            手机需保持应用在前台同步。使用步骤见 [设备同步说明](https://github.com/XuCe/SeqPoint/blob/${{ github.ref_name }}/docs/device-sync.md)。
+            v0.1.0 不含本次所需的原生引擎、权限与完整更新器，需先完整安装本版本；不能仅靠热更新补丁升级。
+
             ## 下载
 
             | 平台 | 文件 |
