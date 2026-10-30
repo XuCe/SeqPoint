@@ -1,0 +1,24 @@
+name: Build embedded Syncthing
+description: Build the pinned Syncthing engine for a SeqPoint platform
+inputs:
+  platform:
+    description: android, ios, macos, windows or linux
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.27.2'
+        cache-dependency-path: native/syncthing/go.sum
+    - name: Prepare Android NDK
+      if: inputs.platform == 'android'
+      shell: bash
+      run: |
+        sdkmanager 'ndk;28.2.13676358'
+        echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/28.2.13676358" >> "$GITHUB_ENV"
+    - name: Build native engine
+      shell: bash
+      env:
+        SYNCTHING_PLATFORM: ${{ inputs.platform }}
+      run: bash native/syncthing/build-engine.sh "$SYNCTHING_PLATFORM"

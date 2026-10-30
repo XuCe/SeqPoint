@@ -5,12 +5,24 @@ on: [push, pull_request]
 jobs:
   core:
     runs-on: macos-latest
+    env:
+      SEQPOINT_SYNCTHING_BIN: ${{ github.workspace }}/native/syncthing/artifacts/syncthing
+      SEQPOINT_NODE_BINARY: ${{ github.workspace }}/seqpoint-node-test
     steps:
       - uses: actions/checkout@v4
       - uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.47.2'
           channel: stable
+      - uses: ./.github/actions/syncthing
+        with:
+          platform: macos
+      - name: 原生引擎测试
+        working-directory: native/syncthing
+        run: go test -tags noassets ./mobile && go vet -tags noassets ./...
+      - name: 节点测试与集成测试程序
+        working-directory: node
+        run: go test ./... && go build -o "$SEQPOINT_NODE_BINARY" .
       - run: scripts/scan_secrets.sh
       - run: bash scripts/prepare_test_tls.sh
       - run: dart pub get
@@ -28,6 +40,12 @@ jobs:
         with:
           flutter-version: '3.47.2'
           channel: stable
+      - uses: ./.github/actions/syncthing
+        with:
+          platform: macos
+      - uses: ./.github/actions/syncthing
+        with:
+          platform: ios
       - run: dart pub get
       - run: cd apps/seqpoint_app && flutter build macos --debug
         env:
@@ -49,8 +67,11 @@ jobs:
         with:
           flutter-version: '3.47.2'
           channel: stable
+      - uses: ./.github/actions/syncthing
+        with:
+          platform: android
       - run: dart pub get
-      - run: cd apps/seqpoint_app && flutter build apk --debug
+      - run: cd apps/seqpoint_app && flutter build apk --debug --target-platform android-arm,android-arm64
 
   build-windows:
     runs-on: windows-latest
@@ -61,5 +82,8 @@ jobs:
         with:
           flutter-version: '3.47.2'
           channel: stable
+      - uses: ./.github/actions/syncthing
+        with:
+          platform: windows
       - run: dart pub get
       - run: cd apps/seqpoint_app; flutter build windows --debug

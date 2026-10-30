@@ -29,6 +29,9 @@ jobs:
   verify:
     name: 检查与测试
     runs-on: ubuntu-latest
+    env:
+      SEQPOINT_SYNCTHING_BIN: ${{ github.workspace }}/native/syncthing/artifacts/syncthing
+      SEQPOINT_NODE_BINARY: ${{ github.workspace }}/seqpoint-node-test
     steps:
       - uses: actions/checkout@v4
 
@@ -52,6 +55,20 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+
+      - uses: ./.github/actions/syncthing
+        with:
+          platform: linux
+      - name: 校验原生许可资产
+        run: |
+          python3 native/syncthing/collect_licenses.py
+          git diff --exit-code -- apps/seqpoint_app/assets/licenses/syncthing.txt
+      - name: 原生引擎测试
+        working-directory: native/syncthing
+        run: go test -tags noassets ./mobile && go vet -tags noassets ./...
+      - name: 节点测试与集成测试程序
+        working-directory: node
+        run: go test ./... && go build -o "$SEQPOINT_NODE_BINARY" .
 
       - name: 完整更新元数据测试
         run: python3 scripts/updates/test_appcast.py
@@ -94,6 +111,9 @@ jobs:
           channel: stable
           cache: true
 
+      - uses: ./.github/actions/syncthing
+        with:
+          platform: android
       - run: dart pub get
 
       - name: 注入发布签名
@@ -183,6 +203,9 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           channel: stable
           cache: true
+      - uses: ./.github/actions/syncthing
+        with:
+          platform: ios
       - run: dart pub get
       - name: 编译未签名归档（不上传基线）
         working-directory: apps/seqpoint_app
@@ -221,6 +244,9 @@ jobs:
           channel: stable
           cache: true
 
+      - uses: ./.github/actions/syncthing
+        with:
+          platform: macos
       - run: dart pub get
 
       - name: 构建
@@ -278,6 +304,9 @@ jobs:
           channel: stable
           cache: true
 
+      - uses: ./.github/actions/syncthing
+        with:
+          platform: windows
       - run: dart pub get
 
       - name: 构建
@@ -358,6 +387,9 @@ jobs:
           "$RUNNER_TEMP/flutter/bin/flutter" --version
           "$RUNNER_TEMP/flutter/bin/flutter" precache --linux
 
+      - uses: ./.github/actions/syncthing
+        with:
+          platform: linux
       - run: dart pub get
 
       - name: 构建

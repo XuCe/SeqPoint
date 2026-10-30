@@ -56,3 +56,4 @@ flutter:
   assets:
     - shorebird.yaml
     - assets/tray/
+    - assets/licenses/syncthing.txt

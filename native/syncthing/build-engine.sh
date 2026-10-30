@@ -27,7 +27,7 @@ case "${1:?Specify android, ios, macos, windows or linux}" in
       github.com/syncthing/syncthing/cmd/syncthing
     ;;
   windows)
-    go build -tags noassets -ldflags "$version_flags" -o artifacts/syncthing.exe \
+    go build -tags noassets -ldflags "$version_flags -H windowsgui" -o artifacts/syncthing.exe \
       github.com/syncthing/syncthing/cmd/syncthing
     ;;
   *) printf '%s\n' 'Unsupported platform' >&2; exit 2 ;;

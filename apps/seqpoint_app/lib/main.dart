@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -18,6 +20,10 @@ import 'platform/mobile_notifications.dart';
 /// 移动端只有一个入口。
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks(['Syncthing and native dependencies'],
+      await rootBundle.loadString('assets/licenses/syncthing.txt'));
+  });
 
   if (Platform.isMacOS || Platform.isWindows) {
     await windowManager.ensureInitialized();
