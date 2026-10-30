@@ -309,11 +309,12 @@ jobs:
         # 各依赖对应：GTK 壳、flutter_secure_storage(libsecret)、
         # tray_manager(appindicator)、flutter_local_notifications_linux(libnotify)
 
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
+      - name: 安装固定版本 Flutter（Linux arm64）
+        # 官方没有该架构的 SDK 压缩包，从相同版本 tag 引导 Dart/engine。
+        run: |
+          git clone --quiet --depth 1 --branch "$FLUTTER_VERSION" https://github.com/flutter/flutter.git "$RUNNER_TEMP/flutter"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/flutter/bin/flutter" --version
 
       - run: dart pub get
 
