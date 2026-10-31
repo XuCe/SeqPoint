@@ -379,6 +379,16 @@ jobs:
           platform: windows
       - run: dart pub get
 
+      - name: Windows 便签真实开窗与关闭回归
+        working-directory: apps/seqpoint_app
+        shell: pwsh
+        timeout-minutes: 12
+        run: >-
+          flutter drive -d windows --profile --no-pub
+          --driver=test_driver/integration_test.dart
+          --target=integration_test/windows_sticky_windows_test.dart
+          "--dart-define=SEQPOINT_STICKY_SMOKE_ROOT=${{ runner.temp }}/seqpoint-sticky-smoke"
+
       - name: 构建
         working-directory: apps/seqpoint_app
         shell: pwsh
@@ -512,7 +522,8 @@ jobs:
             ## 本版本
 
             - 局域网双向同步：电脑出示二维码供手机扫描，也可输入手机的 IP:端口，核对短码并允许后同步。
-            - 修复 Windows 便签墙点击便签时的原生崩溃，避免子窗口重复初始化更新器。
+            - 修复 Windows 便签在隐藏任务栏前未初始化窗口接口导致的原生崩溃。
+            - 发布前验证真实便签入口、两张便签打开、重复打开及关闭后重开。
             - Syncthing 跨网同步：统一使用 Syncthing 节点名称，新增搭建和最小端口开放说明；管理 API 通过内网或 VPN 访问。
             - Android、macOS、Windows 支持应用内下载并安装完整更新；系统要求的安装确认仍需用户操作。
             - 图标改为暖纸底色与琥珀配色；应用内名称只显示“序点”，窗口标题保留版本号。

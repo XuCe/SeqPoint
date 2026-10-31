@@ -133,6 +133,7 @@ class StickyWindowSetup {
     if (json['type'] != 'sticky') return null;
 
     await windowManager.ensureInitialized();
+    await windowManager.waitUntilReadyToShow();
     final frame = WindowFrame.fromJson(
       (json['frame'] as Map?)?.cast<String, Object?>(),
     );
