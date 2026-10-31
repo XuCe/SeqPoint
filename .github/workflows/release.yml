@@ -249,14 +249,63 @@ jobs:
           platform: macos
       - run: dart pub get
 
+      - name: 准备 macOS 自签名身份
+        env:
+          MACOS_SIGNING_P12_BASE64: ${{ secrets.MACOS_SIGNING_P12_BASE64 }}
+          MACOS_SIGNING_PASSWORD: ${{ secrets.MACOS_SIGNING_PASSWORD }}
+        run: |
+          set -euo pipefail
+          umask 077
+          test -n "$MACOS_SIGNING_P12_BASE64" && test -n "$MACOS_SIGNING_PASSWORD"
+          keychain="$RUNNER_TEMP/seqpoint-signing.keychain-db"
+          bundle="$RUNNER_TEMP/seqpoint-signing.p12"
+          certificate="apps/seqpoint_app/macos/signing/seqpoint-certificate.pem"
+          keychain_password="$(openssl rand -hex 24)"
+          python3 -c 'import base64,os,sys; open(sys.argv[1],"wb").write(base64.b64decode(os.environ["MACOS_SIGNING_P12_BASE64"],validate=True))' "$bundle"
+          chmod 600 "$bundle"
+          security create-keychain -p "$keychain_password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$keychain_password" "$keychain"
+          security import "$bundle" -k "$keychain" -P "$MACOS_SIGNING_PASSWORD" -T /usr/bin/codesign
+          touch "$RUNNER_TEMP/seqpoint-trust-added"
+          sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain" "$certificate"
+          security list-keychains -d user > "$RUNNER_TEMP/seqpoint-previous-keychains.txt"
+          security list-keychains -d user -s "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$keychain_password" "$keychain" >/dev/null
+          identity="$(openssl x509 -in "$certificate" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d :)"
+          security find-identity -v -p codesigning "$keychain" | grep -F "$identity"
+          printf 'FLUTTER_XCODE_CODE_SIGN_IDENTITY=%s\n' "$identity" >> "$GITHUB_ENV"
+          rm -f "$bundle"
+
       - name: 构建
         working-directory: apps/seqpoint_app
         env:
           SHOREBIRD_TOKEN: ${{ secrets.SHOREBIRD_TOKEN }}
-          FLUTTER_XCODE_CODE_SIGN_IDENTITY: '-'
           FLUTTER_XCODE_CODE_SIGN_STYLE: Manual
           FLUTTER_XCODE_DEVELOPMENT_TEAM: ''
         run: shorebird release macos --flutter-version "$FLUTTER_VERSION" $SHOREBIRD_DRY_RUN
+
+      - name: 清理临时签名身份
+        if: always()
+        run: |
+          cleanup_status=0
+          certificate="apps/seqpoint_app/macos/signing/seqpoint-certificate.pem"
+          rm -f "$RUNNER_TEMP/seqpoint-signing.p12" || cleanup_status=1
+          python3 -c 'import os,pathlib,shlex,subprocess; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"seqpoint-previous-keychains.txt"; p.exists() and subprocess.run(["security","list-keychains","-d","user","-s",*shlex.split(p.read_text())],check=True)' || cleanup_status=1
+          if [ -f "$RUNNER_TEMP/seqpoint-trust-added" ]; then
+            sudo security remove-trusted-cert -d "$certificate" || cleanup_status=1
+          fi
+          if [ -f "$RUNNER_TEMP/seqpoint-signing.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/seqpoint-signing.keychain-db" || cleanup_status=1
+          fi
+          exit "$cleanup_status"
+
+      - name: 验证 macOS 签名身份
+        run: |
+          app="apps/seqpoint_app/build/macos/Build/Products/Release/${APP_NAME}_app.app"
+          identity="$(printf '%s' "$FLUTTER_XCODE_CODE_SIGN_IDENTITY" | tr '[:upper:]' '[:lower:]')"
+          codesign -d -r- "$app" 2>&1 | tr '[:upper:]' '[:lower:]' | grep -F "certificate leaf = h\"$identity\""
+          codesign --verify --deep --strict "$app"
 
       - name: 打包为 DMG
         run: |
@@ -463,6 +512,6 @@ jobs:
             `SHA256SUMS.txt` 用于校验下载完整性。`*-appcast-*.xml` 供应用原生更新器使用。
             完整更新会在应用内下载并启动安装；Windows 建议先使用安装器安装。
 
-            > iOS 归档不能直接安装，需后续签名及分发；macOS/Windows 暂未做分发签名。
+            > iOS 归档不能直接安装，需后续签名及分发；macOS 使用自签名，未经 Apple 公证，Windows 暂未做分发签名。
             > macOS 首次打开需在「系统设置 → 隐私与安全性」中允许，
             > Windows 会出现 SmartScreen 提示，Android 需允许安装未知来源应用。
