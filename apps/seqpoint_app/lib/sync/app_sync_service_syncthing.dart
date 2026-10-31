@@ -51,6 +51,10 @@ extension _AppSyncSyncthing on AppSyncService {
         final result = await _runtime!.syncFolder(
           FolderTransport(_syncthingFolder, writerDeviceId: identity!.deviceId),
         );
+        if (const bool.fromEnvironment('SEQPOINT_DIAGNOSTICS') &&
+            result is Err<SyncOutcome>) {
+          debugPrint('NAS folder diagnostic: ${result.code} ${result.cause.runtimeType}');
+        }
         if (result is! Ok<SyncOutcome>) throw StateError('加密目录同步未完成');
         _lastRound = result.value;
         final api = SyncthingClient(endpoint);
@@ -59,7 +63,12 @@ extension _AppSyncSyncthing on AppSyncService {
         }
         await _syncthingStatus(api, config.deviceId, result.value);
         return result.value;
-      } catch (_) {
+      } catch (error, stack) {
+        if (const bool.fromEnvironment('SEQPOINT_DIAGNOSTICS')) {
+          final frames = stack.toString().split('\n').where((line) =>
+              line.contains('package:seqpoint_')).take(4).join('\n');
+          debugPrint('NAS diagnostic: ${error.runtimeType}\n$frames');
+        }
         _syncthingMessage = '跨网同步未完成，请检查 NAS 管理接口、密钥和传输连接';
         await _stopSyncthing();
         rethrow;

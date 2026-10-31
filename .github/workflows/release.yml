@@ -86,7 +86,7 @@ jobs:
         run: cd packages/seqpoint_core && dart analyze && dart test
 
       - name: 应用层分析与测试
-        run: cd apps/seqpoint_app && flutter analyze && flutter test
+        run: cd apps/seqpoint_app && flutter analyze && flutter test --dart-define=SEQPOINT_DIAGNOSTICS=true
 
   # ── Android：只出 AArch64 与 ARMv7 两个 ABI ──
   android:

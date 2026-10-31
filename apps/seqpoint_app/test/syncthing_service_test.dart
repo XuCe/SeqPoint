@@ -124,10 +124,17 @@ Future<void> _exercise(
     'relaysEnabled': false,
     'natEnabled': false,
   });
+  var listenerReady = false;
   for (var retry = 0; retry < 50; retry++) {
     final status = await api.request('GET', 'system/status') as Map;
-    if ((status['connectionServiceStatus'] as Map).containsKey(address)) break;
+    if ((status['connectionServiceStatus'] as Map).containsKey(address)) {
+      listenerReady = true;
+      break;
+    }
     await Future<void>.delayed(const Duration(milliseconds: 100));
+  }
+  if (const bool.fromEnvironment('SEQPOINT_DIAGNOSTICS')) {
+    stdout.writeln('NAS listener ready: $listenerReady');
   }
   await expectLater(
     a.saveSyncthing(address: endpoint.baseUrl, apiKey: endpoint.apiKey),
@@ -167,6 +174,14 @@ Future<void> _exercise(
   expect(await a.loadSyncthingAddress(), endpoint.baseUrl);
   expect(folders, hasLength(1));
   expect(folders.single['devices'], hasLength(3));
+  if (const bool.fromEnvironment('SEQPOINT_DIAGNOSTICS')) {
+    final nasId = await nas.localDeviceId();
+    for (final node in [a, b]) {
+      final client = SyncthingClient(await node.engineHost!.start());
+      final device = await client.request('GET', 'config/devices/$nasId') as Map;
+      stdout.writeln('NAS direct address configured: ${(device['addresses'] as List).contains(address)}');
+    }
+  }
   await _switchNas(root, a, endpoint);
   await _pauseDuringSave(a, endpoint);
   await _storageOutage(a);
