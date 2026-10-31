@@ -13,7 +13,10 @@ class SecureSecretStore implements SecretStore {
   // 后台调度的提醒也能读到密钥。
   static const _storage = FlutterSecureStorage(
     iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
-    mOptions: MacOsOptions(accessibility: KeychainAccessibility.first_unlock),
+    mOptions: MacOsOptions(
+      accessibility: KeychainAccessibility.first_unlock,
+      usesDataProtectionKeychain: false,
+    ),
   );
 
   @override
