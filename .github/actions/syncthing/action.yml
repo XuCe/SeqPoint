@@ -11,6 +11,8 @@ runs:
       with:
         go-version: '1.26.9'
         cache-dependency-path: native/syncthing/go.sum
+    - uses: android-actions/setup-android@v4
+      if: inputs.platform == 'android'
     - name: Prepare Android NDK
       if: inputs.platform == 'android'
       shell: bash
