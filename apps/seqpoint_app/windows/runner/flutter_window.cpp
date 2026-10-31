@@ -4,6 +4,11 @@
 
 #include "flutter/generated_plugin_registrant.h"
 #include "desktop_multi_window/desktop_multi_window_plugin.h"
+#include <audioplayers_windows/audioplayers_windows_plugin.h>
+#include <flutter_secure_storage_windows/flutter_secure_storage_windows_plugin.h>
+#include <record_windows/record_windows_plugin_c_api.h>
+#include <speech_to_text_windows/speech_to_text_windows.h>
+#include <window_manager/window_manager_plugin.h>
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -29,7 +34,20 @@ bool FlutterWindow::OnCreate() {
   DesktopMultiWindowSetWindowCreatedCallback([](void* controller) {
     auto* view_controller =
         reinterpret_cast<flutter::FlutterViewController*>(controller);
-    RegisterPlugins(view_controller->engine());
+    // The updater is process-wide; registering it again terminates the app.
+    auto* registry = view_controller->engine();
+    DesktopMultiWindowPluginRegisterWithRegistrar(
+        registry->GetRegistrarForPlugin("DesktopMultiWindowPlugin"));
+    WindowManagerPluginRegisterWithRegistrar(
+        registry->GetRegistrarForPlugin("WindowManagerPlugin"));
+    FlutterSecureStorageWindowsPluginRegisterWithRegistrar(
+        registry->GetRegistrarForPlugin("FlutterSecureStorageWindowsPlugin"));
+    AudioplayersWindowsPluginRegisterWithRegistrar(
+        registry->GetRegistrarForPlugin("AudioplayersWindowsPlugin"));
+    RecordWindowsPluginCApiRegisterWithRegistrar(
+        registry->GetRegistrarForPlugin("RecordWindowsPluginCApi"));
+    SpeechToTextWindowsRegisterWithRegistrar(
+        registry->GetRegistrarForPlugin("SpeechToTextWindows"));
   });
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 

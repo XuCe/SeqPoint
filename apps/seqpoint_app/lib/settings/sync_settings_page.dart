@@ -101,7 +101,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
               value: false,
               onChanged: null,
               title: Text('本地目录'),
-              subtitle: Text('把数据放进网盘同步目录或 NAS 挂载盘'),
+              subtitle: Text('把数据放进网盘同步目录或共享盘'),
             ),
             SwitchListTile(
               value: false,
@@ -118,7 +118,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
           ],
         ),
         SettingsGroup(
-          label: '设备直连 / NAS 互通',
+          label: 'Syncthing 设备互通',
           children: [
             ListTile(
               title: Text('Syncthing 引擎'),

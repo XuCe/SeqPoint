@@ -19,7 +19,7 @@ class _Service extends AppSyncService {
   @override
   bool get syncthingSupported => true;
   @override
-  Future<String> loadSyncthingAddress() async => 'nas.example.com:8384';
+  Future<String> loadSyncthingAddress() async => 'http://192.168.1.10:8384';
   @override
   Future<void> saveSyncthing({
     required String address,
@@ -32,7 +32,7 @@ class _Service extends AppSyncService {
 }
 
 void main() {
-  testWidgets('NAS form works on narrow screens and never shows saved keys', (
+  testWidgets('Syncthing form and setup guide work on narrow screens without exposing keys', (
     tester,
   ) async {
     final db = SeqDatabase.inMemory()..migrate();
@@ -51,6 +51,9 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.text('连接 Syncthing 节点'), findsOneWidget);
+    expect(find.textContaining('NAS'), findsNothing);
+    expect(find.text('Syncthing 管理 API 地址'), findsOneWidget);
     final key = find.byKey(const ValueKey('syncthing-api-key'));
     expect(tester.widget<TextField>(key).obscureText, isTrue);
     expect(tester.widget<TextField>(key).controller!.text, isEmpty);
@@ -58,9 +61,16 @@ void main() {
     await tester.ensureVisible(find.text('保存并授权'));
     await tester.tap(find.text('保存并授权'));
     await tester.pumpAndSettle();
-    expect(service.savedAddress, 'nas.example.com:8384');
+    expect(service.savedAddress, 'http://192.168.1.10:8384');
     expect(service.savedKey, 'new-key');
     expect(tester.widget<TextField>(key).controller!.text, isEmpty);
+    final guide = find.text('如何搭建 Syncthing · 端口怎么开放');
+    await tester.ensureVisible(guide);
+    await tester.tap(guide);
+    await tester.pumpAndSettle();
+    expect(find.text('最小端口开放范围'), findsOneWidget);
+    expect(find.textContaining('22000/TCP'), findsOneWidget);
+    expect(find.textContaining('不要把管理端口映射到公网'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await service.stop();

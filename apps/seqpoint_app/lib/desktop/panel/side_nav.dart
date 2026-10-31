@@ -89,16 +89,18 @@ class _Brand extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = context.findAncestorWidgetOfExactType<Title>()?.title;
     return Padding(
       padding: const EdgeInsets.fromLTRB(20, 18, 12, 16),
       child: Row(
         children: [
-          Image.asset('assets/brand/logo.png', width: 32, height: 32,
-            excludeFromSemantics: true),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(SeqSpace.radiusControl),
+            child: Image.asset('assets/brand/logo.png', width: 32, height: 32,
+              excludeFromSemantics: true),
+          ),
           const SizedBox(width: 8),
           Expanded(child: Text(
-            title == null || title.isEmpty ? '序点' : title,
+            '序点',
             maxLines: 2,
             style: Theme.of(context).textTheme.titleMedium?.copyWith(
                   fontFamily: SeqFonts.serif.first,

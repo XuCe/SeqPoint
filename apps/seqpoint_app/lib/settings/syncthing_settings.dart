@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../sync/app_sync_service.dart';
 import 'settings_scaffold.dart';
+import 'syncthing_setup_guide.dart';
 
 class SyncthingSettings extends StatefulWidget {
   const SyncthingSettings({
@@ -52,7 +53,7 @@ class _SyncthingSettingsState extends State<SyncthingSettings> {
     try {
       await action();
     } catch (_) {
-      if (mounted) setState(() => _error = '操作未完成，请检查配对、管理地址、API Key 和 NAS 状态');
+      if (mounted) setState(() => _error = '操作未完成，请检查配对、内网或 VPN 连接、Syncthing 管理地址和 API Key');
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -69,8 +70,10 @@ class _SyncthingSettingsState extends State<SyncthingSettings> {
       keyboardType: TextInputType.url,
       autocorrect: false,
       decoration: const InputDecoration(
-        labelText: 'NAS 管理地址（域名＋端口）',
-        hintText: 'nas.example.com:8384',
+        labelText: 'Syncthing 管理 API 地址',
+        hintText: 'http://192.168.1.10:8384',
+        helperText: '填写内网或 VPN 可达的 HTTP(S) 地址；不是 22000 传输地址',
+        helperMaxLines: 3,
       ),
     ),
     const SizedBox(height: 12),
@@ -82,8 +85,10 @@ class _SyncthingSettingsState extends State<SyncthingSettings> {
       autocorrect: false,
       enableSuggestions: false,
       decoration: const InputDecoration(
-        labelText: '管理 API Key',
+        labelText: 'Syncthing API Key',
         hintText: '首次填写；相同地址留空可保留已存密钥',
+        helperText: '在 Syncthing「操作 → 设置 → 常规」中获取',
+        helperMaxLines: 2,
       ),
     ),
   ];
@@ -128,12 +133,12 @@ class _SyncthingSettingsState extends State<SyncthingSettings> {
       label: 'Syncthing 跨网同步',
       children: [
         ListTile(
-          title: const Text('连接自己的 NAS'),
+          title: const Text('连接 Syncthing 节点'),
           subtitle: Text(
             _error ??
                 (service.syncthingMessage.isNotEmpty
                     ? service.syncthingMessage
-                    : '先在局域网配对，再配置 NAS；两台设备无需同时在线。'),
+                    : '先完成序点设备配对，再连接常在线的 Syncthing 节点；客户端无需同时在线。'),
           ),
         ),
         SwitchListTile(
@@ -161,8 +166,10 @@ class _SyncthingSettingsState extends State<SyncthingSettings> {
               _buttons(disabled),
               const SizedBox(height: 12),
               const Text(
-                '填写管理 API 的域名和端口，不是 22000 传输端口。'
-                '公网默认使用 HTTPS；API Key 只保存在本机安全存储。手机在前台同步。',
+                '当前方式会自动授权设备和共享目录，每轮同步仍需访问管理 API。'
+                '请通过内网或 VPN 连接，不要将 8384 管理端口映射到公网；'
+                '只开放 22000 无法完成本页的自动配置。'
+                'API Key 仅保存在本机安全存储，手机需在前台同步。',
               ),
               if (!service.canSync) const Text('请先完成局域网设备配对。'),
               if (!service.syncthingSupported)
@@ -171,6 +178,7 @@ class _SyncthingSettingsState extends State<SyncthingSettings> {
             ],
           ),
         ),
+        const SyncthingSetupGuide(),
       ],
     );
   }

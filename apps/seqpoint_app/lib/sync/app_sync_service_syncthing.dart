@@ -21,7 +21,7 @@ extension _AppSyncSyncthing on AppSyncService {
       try {
         final config = await _loadSyncthingTarget();
         if (!_syncthingEnabled) throw StateError('请先开启跨网同步');
-        if (config == null) throw StateError('请先保存 NAS 配置');
+        if (config == null) throw StateError('请先保存 Syncthing 配置');
         final endpoint = await engineHost!.start();
         if (_syncthingSession != endpoint.baseUrl) {
           await _configureSyncthing(
@@ -60,7 +60,7 @@ extension _AppSyncSyncthing on AppSyncService {
         await _syncthingStatus(api, config.deviceId, result.value);
         return result.value;
       } catch (_) {
-        _syncthingMessage = '跨网同步未完成，请检查 NAS 管理接口、密钥和传输连接';
+        _syncthingMessage = '跨网同步未完成，请检查内网或 VPN、Syncthing 管理接口、密钥和传输连接';
         await _stopSyncthing();
         rethrow;
       }
@@ -171,8 +171,8 @@ extension _AppSyncSyncthing on AppSyncService {
       throw StateError('Syncthing 目录传输异常');
     }
     _syncthingMessage = connected
-        ? '已连接 NAS；本轮合并 ${outcome.pulled} 条更改'
-        : '已写入加密目录，等待 NAS 传输连接';
+        ? '已连接 Syncthing 节点；本轮合并 ${outcome.pulled} 条更改'
+        : '已写入加密目录，等待 Syncthing 传输连接';
     if (mediaPending || outcome.waitingPeers.isNotEmpty) {
       _syncthingMessage += '；仍有数据待补齐';
     }
@@ -184,7 +184,7 @@ extension _AppSyncSyncthing on AppSyncService {
     final config = enabled ? await _readSyncthing() : null;
     if (enabled) {
       _requireSyncthing();
-      if (config == null) throw StateError('请先保存 NAS 配置');
+      if (config == null) throw StateError('请先保存 Syncthing 配置');
     }
     _syncthingEnabled = false;
     _syncthingRetry = false;

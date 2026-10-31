@@ -2,11 +2,11 @@ flutter_launcher_icons:
   image_path: assets/brand/logo.png
   android: true
   min_sdk_android: 26
-  adaptive_icon_background: '#FFFFFF'
+  adaptive_icon_background: '#FBF0CC'
   adaptive_icon_foreground: assets/brand/logo.png
   ios: true
   remove_alpha_ios: true
-  background_color_ios: '#FFFFFF'
+  background_color_ios: '#FBF0CC'
   macos:
     generate: true
   windows:
