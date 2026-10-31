@@ -59,7 +59,7 @@ extension _AppSyncLan on AppSyncService {
         failure = error;
       }
     }
-    if (_syncthingEnabled && !_closed && !_userPaused && !_suspended) {
+    if ((_syncthingEnabled || _syncthingRetry) && !_closed && !_userPaused && !_suspended) {
       try {
         await syncSyncthing(automatic: true);
       } catch (error) {

@@ -12,10 +12,12 @@ import 'package:shared_preferences_platform_interface/shared_preferences_platfor
 
 class _Secrets extends Fake implements SecretStore {
   final values = <String, String>{};
+  int syncthingReads = 0;
   bool failNasWrite = false, failReadAfterWrite = false, failNextRead = false;
   Completer<void>? writeStarted, releaseWrite;
   @override
   Future<String?> read(String key) async {
+    if (key.startsWith('sync.syncthing.')) syncthingReads++;
     if (failNextRead && key.startsWith('sync.syncthing.')) {
       failNextRead = false;
       throw StateError('readback unavailable');
@@ -85,7 +87,7 @@ void main() {
           nodes.add(service);
           await service.prepare(name);
         }
-        await _exercise(root, nas, nodes[0], nodes[1]);
+        await _exercise(root, nas, nodes[0], nodes[1], (node) => nodes[1] = node);
       } finally {
         for (final node in nodes) {
           await node.stop();
@@ -108,6 +110,7 @@ Future<void> _exercise(
   SyncthingEngineHost nas,
   AppSyncService a,
   AppSyncService b,
+  void Function(AppSyncService) replaceB,
 ) async {
   final endpoint = await nas.start();
   final api = SyncthingClient(endpoint);
@@ -124,17 +127,10 @@ Future<void> _exercise(
     'relaysEnabled': false,
     'natEnabled': false,
   });
-  var listenerReady = false;
   for (var retry = 0; retry < 50; retry++) {
     final status = await api.request('GET', 'system/status') as Map;
-    if ((status['connectionServiceStatus'] as Map).containsKey(address)) {
-      listenerReady = true;
-      break;
-    }
+    if ((status['connectionServiceStatus'] as Map).containsKey(address)) break;
     await Future<void>.delayed(const Duration(milliseconds: 100));
-  }
-  if (const bool.fromEnvironment('SEQPOINT_DIAGNOSTICS')) {
-    stdout.writeln('NAS listener ready: $listenerReady');
   }
   await expectLater(
     a.saveSyncthing(address: endpoint.baseUrl, apiKey: endpoint.apiKey),
@@ -174,17 +170,40 @@ Future<void> _exercise(
   expect(await a.loadSyncthingAddress(), endpoint.baseUrl);
   expect(folders, hasLength(1));
   expect(folders.single['devices'], hasLength(3));
-  if (const bool.fromEnvironment('SEQPOINT_DIAGNOSTICS')) {
-    final nasId = await nas.localDeviceId();
-    for (final node in [a, b]) {
-      final client = SyncthingClient(await node.engineHost!.start());
-      final device = await client.request('GET', 'config/devices/$nasId') as Map;
-      stdout.writeln('NAS direct address configured: ${(device['addresses'] as List).contains(address)}');
-    }
-  }
   await _switchNas(root, a, endpoint);
   await _pauseDuringSave(a, endpoint);
   await _storageOutage(a);
+  await b.stop();
+  b.dispose();
+  b = AppSyncService(db: b.db, root: b.root, secrets: b.secrets,
+      engineHost: b.engineHost);
+  replaceB(b);
+  (b.secrets as _Secrets).failNextRead = true;
+  await b.startAutomatic();
+  final startupDeadline = DateTime.now().add(const Duration(seconds: 20));
+  while (!b.syncthingEnabled && DateTime.now().isBefore(startupDeadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+  expect(b.syncthingEnabled, isTrue,
+      reason: 'cold startup must retry a temporary secure storage failure');
+  await b.setSyncthingEnabled(false);
+  await b.stop();
+  b.dispose();
+  b = AppSyncService(db: b.db, root: b.root, secrets: b.secrets,
+      engineHost: b.engineHost);
+  replaceB(b);
+  final bStorage = b.secrets as _Secrets;
+  bStorage.syncthingReads = 0;
+  bStorage.failNextRead = true;
+  await b.startAutomatic();
+  final disabledDeadline = DateTime.now().add(const Duration(seconds: 20));
+  while (bStorage.syncthingReads < 2 && DateTime.now().isBefore(disabledDeadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+  expect(bStorage.syncthingReads, greaterThanOrEqualTo(2));
+  expect(b.syncthingEnabled, isFalse,
+      reason: 'a retry must not re-enable an explicitly disabled target');
+  await b.setSyncthingEnabled(true);
   final localId = await a.engineHost!.localDeviceId();
   final current =
       (await api.request('GET', 'config/folders') as List).single as Map;
@@ -341,12 +360,19 @@ Future<void> _switchNas(
 
 Future<void> _storageOutage(AppSyncService service) async {
   final storage = service.secrets as _Secrets;
+  await service.startAutomatic();
   final endpoint = await service.engineHost!.start();
   storage.failNextRead = true;
   await expectLater(service.syncSyncthing(), throwsStateError);
   final uri = Uri.parse(endpoint.baseUrl);
   await expectLater(Socket.connect(uri.host, uri.port,
     timeout: const Duration(seconds: 2)), throwsA(isA<SocketException>()));
+  final deadline = DateTime.now().add(const Duration(seconds: 20));
+  while (!service.syncthingEnabled && DateTime.now().isBefore(deadline)) {
+    await Future<void>.delayed(const Duration(milliseconds: 200));
+  }
+  expect(service.syncthingEnabled, isTrue,
+      reason: 'temporary secure storage failure should retry automatically');
   await service.syncSyncthing();
   final resumed = Uri.parse((await service.engineHost!.start()).baseUrl);
   storage.failNextRead = true;

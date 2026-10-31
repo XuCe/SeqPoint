@@ -23,14 +23,20 @@ extension _AppSyncAutomatic on AppSyncService {
     if(_closed || vault!=relayVaultId) return;
     _automaticEndpoint=endpoint;
     await _loadLanTargets();
-    await _loadSyncthingTarget();
+    try {
+      await _loadSyncthingTarget();
+    } catch (_) {
+      await _stopSyncthing();
+      _error='跨网同步配置暂不可用，将自动重试';
+    }
+    if (_closed) return;
     _automatic??=AutoSyncScheduler(revision:() {
       if(_closed || !db.raw.autocommit) return null;
       final row=db.raw.select('SELECT hlc_millis,hlc_counter,media_enabled FROM sync_local WHERE id=1').single;
       return '${row['hlc_millis']}:${row['hlc_counter']}:${row['media_enabled']}';
-    },canRun:()=>!_closed && !_busy && !_userPaused && !_suspended && _automaticEnabled && canSync && (_syncthingEnabled || _automaticEndpoint.isNotEmpty || (_lanEnabled && _lanPeers.isNotEmpty)),
+    },canRun:()=>!_closed && !_busy && !_userPaused && !_suspended && _automaticEnabled && canSync && (_syncthingEnabled || _syncthingRetry || _automaticEndpoint.isNotEmpty || (_lanEnabled && _lanPeers.isNotEmpty)),
       work:_automaticRound);
-    _automatic!.idleInterval=Duration(seconds:_lanEnabled || _syncthingEnabled?5:60);
+    _automatic!.idleInterval=Duration(seconds:_lanEnabled || _syncthingEnabled || _syncthingRetry?5:60);
     if(!_userPaused && !_suspended) _automatic!.start();
     _notifyAutomatic();
   }

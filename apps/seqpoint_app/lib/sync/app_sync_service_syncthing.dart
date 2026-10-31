@@ -51,10 +51,6 @@ extension _AppSyncSyncthing on AppSyncService {
         final result = await _runtime!.syncFolder(
           FolderTransport(_syncthingFolder, writerDeviceId: identity!.deviceId),
         );
-        if (const bool.fromEnvironment('SEQPOINT_DIAGNOSTICS') &&
-            result is Err<SyncOutcome>) {
-          debugPrint('NAS folder diagnostic: ${result.code} ${result.cause.runtimeType}');
-        }
         if (result is! Ok<SyncOutcome>) throw StateError('加密目录同步未完成');
         _lastRound = result.value;
         final api = SyncthingClient(endpoint);
@@ -63,12 +59,7 @@ extension _AppSyncSyncthing on AppSyncService {
         }
         await _syncthingStatus(api, config.deviceId, result.value);
         return result.value;
-      } catch (error, stack) {
-        if (const bool.fromEnvironment('SEQPOINT_DIAGNOSTICS')) {
-          final frames = stack.toString().split('\n').where((line) =>
-              line.contains('package:seqpoint_')).take(4).join('\n');
-          debugPrint('NAS diagnostic: ${error.runtimeType}\n$frames');
-        }
+      } catch (_) {
         _syncthingMessage = '跨网同步未完成，请检查 NAS 管理接口、密钥和传输连接';
         await _stopSyncthing();
         rethrow;
@@ -196,6 +187,7 @@ extension _AppSyncSyncthing on AppSyncService {
       if (config == null) throw StateError('请先保存 NAS 配置');
     }
     _syncthingEnabled = false;
+    _syncthingRetry = false;
     await _stopSyncthing();
     final prefs = await SharedPreferences.getInstance();
     try {
@@ -282,6 +274,7 @@ extension _AppSyncSyncthing on AppSyncService {
       _automatic?.request();
     } catch (_) {
       _syncthingEnabled = false;
+      _syncthingRetry = false;
       await _stopSyncthing();
       await (await SharedPreferences.getInstance()).reload();
       rethrow;
@@ -331,13 +324,19 @@ extension _AppSyncSyncthing on AppSyncService {
 
   Future<_SyncthingSettings?> _loadSyncthingTarget() async {
     _syncthingEnabled = false;
+    _syncthingRetry = false;
     final key = _syncthingKey;
     if (!syncthingSupported || key == null) return null;
-    final config = await _readSyncthing();
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-    final committed = prefs.getString('$key.enabledRevision');
-    _syncthingEnabled = config != null && config.revision == committed;
-    return config;
+    try {
+      final config = await _readSyncthing();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      final committed = prefs.getString('$key.enabledRevision');
+      _syncthingEnabled = config != null && config.revision == committed;
+      return config;
+    } catch (_) {
+      _syncthingRetry = true;
+      rethrow;
+    }
   }
 }

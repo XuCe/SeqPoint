@@ -28,6 +28,7 @@ class AppSyncService extends ChangeNotifier {
       this.onCommittedChange, this.engineHost});
   final SyncEngineHost? engineHost;
   bool _syncthingEnabled = false;
+  bool _syncthingRetry = false;
   String? _syncthingSession;
   String _syncthingMessage = '';
   bool get syncthingSupported => engineHost?.isSupported ?? false;
