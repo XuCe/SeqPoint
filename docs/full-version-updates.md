@@ -42,8 +42,9 @@
 
 macOS 构建还需要 `MACOS_SIGNING_P12_BASE64` 和 `MACOS_SIGNING_PASSWORD`。
 始终使用同一自签名身份，并在安全位置备份加密的 P12 和密码；更换或丢失
-身份会影响后续版本读取钥匙串与原有沙盒数据。CI 使用临时钥匙串和信任，
-构建后清理。证书公钥位于 `apps/seqpoint_app/macos/signing/seqpoint-certificate.pem`。
+身份会影响后续版本读取钥匙串与原有沙盒数据。CI 仅允许使用 GitHub 托管的
+临时虚拟机，构建后删除 P12 和临时钥匙串，代码签名信任随虚拟机销毁。
+证书公钥位于 `apps/seqpoint_app/macos/signing/seqpoint-certificate.pem`。
 
 已安装的 v0.1.0 不含原生更新器，必须先完整安装一次新基线。
 Shorebird 补丁不会增加本功能所需的原生插件或系统权限。

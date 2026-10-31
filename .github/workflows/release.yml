@@ -256,6 +256,8 @@ jobs:
         run: |
           set -euo pipefail
           umask 077
+          # GitHub-hosted VMs are discarded after each job; never use a persistent runner.
+          test "$RUNNER_ENVIRONMENT" = github-hosted
           test -n "$MACOS_SIGNING_P12_BASE64" && test -n "$MACOS_SIGNING_PASSWORD"
           keychain="$RUNNER_TEMP/seqpoint-signing.keychain-db"
           bundle="$RUNNER_TEMP/seqpoint-signing.p12"
@@ -267,7 +269,6 @@ jobs:
           security set-keychain-settings -lut 21600 "$keychain"
           security unlock-keychain -p "$keychain_password" "$keychain"
           security import "$bundle" -k "$keychain" -P "$MACOS_SIGNING_PASSWORD" -T /usr/bin/codesign
-          touch "$RUNNER_TEMP/seqpoint-trust-added"
           sudo security add-trusted-cert -d -r trustRoot -p codeSign -k "$keychain" "$certificate"
           security list-keychains -d user > "$RUNNER_TEMP/seqpoint-previous-keychains.txt"
           security list-keychains -d user -s "$keychain"
@@ -288,6 +289,10 @@ jobs:
       - name: 清理临时签名身份
         if: always()
         run: |
+          if [ "$RUNNER_ENVIRONMENT" != github-hosted ]; then
+            echo '自托管运行器未导入签名身份，跳过清理。'
+            exit 0
+          fi
           python3 - <<'PY'
           import os, pathlib, shlex, subprocess, sys
           root = pathlib.Path(os.environ['RUNNER_TEMP'])
@@ -309,8 +314,6 @@ jobs:
                   run('恢复钥匙串列表', ['security', 'list-keychains', '-d', 'user', '-s', *shlex.split(previous.read_text())])
           except (OSError, ValueError):
               errors.append('读取钥匙串列表')
-          if (root / 'seqpoint-trust-added').exists():
-              run('撤销证书信任', ['sudo', '-n', 'security', 'remove-trusted-cert', '-d', 'apps/seqpoint_app/macos/signing/seqpoint-certificate.pem'])
           keychain = root / 'seqpoint-signing.keychain-db'
           if keychain.exists():
               run('删除临时钥匙串', ['security', 'delete-keychain', str(keychain)])
