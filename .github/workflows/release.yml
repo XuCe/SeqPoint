@@ -384,7 +384,7 @@ jobs:
         shell: pwsh
         timeout-minutes: 12
         run: >-
-          flutter drive -d windows --profile --no-pub
+          flutter drive -d windows --profile
           --driver=test_driver/integration_test.dart
           --target=integration_test/windows_sticky_windows_test.dart
           "--dart-define=SEQPOINT_STICKY_SMOKE_ROOT=${{ runner.temp }}/seqpoint-sticky-smoke"

@@ -1,7 +1,7 @@
 name: seqpoint_app
 description: 序点 SeqPoint —— 让每件事，都有顺序。
 publish_to: none
-version: 0.2.2+4
+version: 0.2.3+5
 
 environment:
   sdk: ^3.13.0
