@@ -288,17 +288,35 @@ jobs:
       - name: 清理临时签名身份
         if: always()
         run: |
-          cleanup_status=0
-          certificate="apps/seqpoint_app/macos/signing/seqpoint-certificate.pem"
-          rm -f "$RUNNER_TEMP/seqpoint-signing.p12" || cleanup_status=1
-          python3 -c 'import os,pathlib,shlex,subprocess; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"seqpoint-previous-keychains.txt"; p.exists() and subprocess.run(["security","list-keychains","-d","user","-s",*shlex.split(p.read_text())],check=True)' || cleanup_status=1
-          if [ -f "$RUNNER_TEMP/seqpoint-trust-added" ]; then
-            sudo security remove-trusted-cert -d "$certificate" || cleanup_status=1
-          fi
-          if [ -f "$RUNNER_TEMP/seqpoint-signing.keychain-db" ]; then
-            security delete-keychain "$RUNNER_TEMP/seqpoint-signing.keychain-db" || cleanup_status=1
-          fi
-          exit "$cleanup_status"
+          python3 - <<'PY'
+          import os, pathlib, shlex, subprocess, sys
+          root = pathlib.Path(os.environ['RUNNER_TEMP'])
+          errors = []
+          def run(label, command):
+              print('清理：' + label, flush=True)
+              try:
+                  subprocess.run(command, check=True, timeout=30)
+              except (subprocess.SubprocessError, OSError) as error:
+                  errors.append(label)
+                  print(f'{label}未完成: {type(error).__name__}', flush=True)
+          try:
+              (root / 'seqpoint-signing.p12').unlink(missing_ok=True)
+          except OSError:
+              errors.append('删除P12')
+          previous = root / 'seqpoint-previous-keychains.txt'
+          try:
+              if previous.exists():
+                  run('恢复钥匙串列表', ['security', 'list-keychains', '-d', 'user', '-s', *shlex.split(previous.read_text())])
+          except (OSError, ValueError):
+              errors.append('读取钥匙串列表')
+          if (root / 'seqpoint-trust-added').exists():
+              run('撤销证书信任', ['sudo', '-n', 'security', 'remove-trusted-cert', '-d', 'apps/seqpoint_app/macos/signing/seqpoint-certificate.pem'])
+          keychain = root / 'seqpoint-signing.keychain-db'
+          if keychain.exists():
+              run('删除临时钥匙串', ['security', 'delete-keychain', str(keychain)])
+          if errors:
+              sys.exit('签名身份清理失败: ' + ', '.join(errors))
+          PY
 
       - name: 验证 macOS 签名身份
         run: |
