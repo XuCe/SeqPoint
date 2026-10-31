@@ -65,6 +65,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - uses: ./.github/actions/syncthing
+        with:
+          platform: ${{ inputs.platform }}
       - name: 复用 Android 基线签名
         if: inputs.platform == 'android'
         env:
