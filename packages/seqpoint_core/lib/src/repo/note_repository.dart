@@ -1,3 +1,5 @@
+import 'package:sqlite3/sqlite3.dart' show ResultSet;
+
 import '../db/database.dart';
 import '../model/enums.dart';
 import '../model/note.dart';
@@ -8,6 +10,40 @@ import '../util/ids.dart';
 import 'json_codec.dart';
 import 'item_repository.dart';
 import 'mappers.dart';
+
+typedef WallNote = ({Note note, int done, int total});
+
+/// 保留当前排序，随滚动分批读取进度；刷新便签墙会创建新的快照。
+class NoteWallSnapshot {
+  NoteWallSnapshot._(this._db, this._notes);
+
+  final SeqDatabase _db;
+  final ResultSet _notes;
+  static const _pageSize = 32;
+  final _pages = <int, List<WallNote>>{};
+
+  int get length => _notes.length;
+  bool get isEmpty => _notes.isEmpty;
+
+  WallNote operator [](int index) {
+    final start = index - index % _pageSize;
+    final page = _pages.putIfAbsent(start, () {
+      final notes = _notes.skip(start).take(_pageSize).map(RowMappers.note).toList();
+      final ids = [for (final note in notes) note.id];
+      final placeholders = List.filled(ids.length, '?').join(',');
+      final rows = _db.raw.select("""
+        SELECT note_id, COUNT(*) AS total, SUM(status = 'done') AS done
+        FROM items WHERE deleted_at IS NULL AND note_id IN ($placeholders)
+        GROUP BY note_id
+      """, ids);
+      final counts = {for (final row in rows) row['note_id'] as String: row};
+      return [for (final note in notes) (note: note,
+          done: counts[note.id]?['done'] as int? ?? 0,
+          total: counts[note.id]?['total'] as int? ?? 0)];
+    });
+    return page[index - start];
+  }
+}
 
 /// 便签仓储。只做存取，业务规则在 NoteService。
 class NoteRepository {
@@ -69,11 +105,13 @@ class NoteRepository {
   }
 
   /// 活跃便签，置顶优先，其次按更新时间倒序。
-  List<Note> active() => _db.raw
+  ResultSet _activeRows() => _db.raw
       .select("SELECT * FROM notes WHERE status = 'active' AND deleted_at IS NULL "
-          'ORDER BY pinned DESC, updated_at DESC')
-      .map(RowMappers.note)
-      .toList();
+          'ORDER BY pinned DESC, updated_at DESC');
+
+  List<Note> active() => _activeRows().map(RowMappers.note).toList();
+
+  NoteWallSnapshot activeWithProgress() => NoteWallSnapshot._(_db, _activeRows());
 
   List<Note> closed({int limit = 200}) => _db.raw
       .select("SELECT * FROM notes WHERE status = 'closed' AND deleted_at IS NULL "

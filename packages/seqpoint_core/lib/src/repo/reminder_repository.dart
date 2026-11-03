@@ -44,6 +44,21 @@ class ReminderRepository {
       .map(RowMappers.reminder)
       .toList();
 
+  Map<String, List<Reminder>> enabledForOpenItems() {
+    final rows = _db.raw.select("""
+      SELECT r.* FROM reminders r JOIN items i ON i.id = r.item_id
+      LEFT JOIN notes n ON n.id = i.note_id
+      WHERE r.enabled = 1 AND r.mode IN ('exact', 'relative')
+        AND i.status = 'todo' AND i.deleted_at IS NULL AND n.deleted_at IS NULL
+    """);
+    final result = <String, List<Reminder>>{};
+    for (final row in rows) {
+      final reminder = RowMappers.reminder(row);
+      (result[reminder.itemId] ??= []).add(reminder);
+    }
+    return result;
+  }
+
   /// 待触发：启用中且触发时刻在 [until] 之前。
   List<Reminder> pending(DateTime until) => _db.raw
       .select('SELECT * FROM reminders WHERE enabled = 1 AND trigger_at IS NOT NULL '

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:seqpoint_core/seqpoint_core.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -9,6 +10,7 @@ import '../../shared/note_search.dart';
 import '../../theme/seq_tokens.dart';
 import 'item_row.dart';
 import 'note_editor.dart';
+import 'note_media_bar.dart';
 import 'sticky_shortcuts.dart';
 
 /// 桌面便签窗：贴在屏幕上的那张纸。
@@ -30,6 +32,15 @@ class _StickyWindowState extends State<StickyWindow> with WindowListener {
   List<Item> _items = const [];
   bool _pinned = false;
   bool _pinning = false;
+  bool? _toolsVisible; // 首次点击前不装配附件控件。
+
+  void _activateTools() => setState(() => _toolsVisible = true);
+
+  @override
+  void onWindowBlur() {
+    if (mounted && _toolsVisible == true) setState(() => _toolsVisible = false);
+  }
+
   int _currentRow = 0;
 
   Future<void> _search() async {
@@ -145,6 +156,23 @@ class _StickyWindowState extends State<StickyWindow> with WindowListener {
     _reload();
   }
 
+  Future<void> _newNote() async {
+    final windows = AppScope.of(context).windows;
+    final id = await Navigator.of(context).push<String>(
+      MaterialPageRoute(builder: (_) => const NoteEditor()),
+    );
+    if (id == null || !mounted) return;
+    try {
+      await windows?.openSticky(id);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('便签已保存，可从便签墙打开。')),
+        );
+      }
+    }
+  }
+
   Future<void> _edit() async {
     await Navigator.of(context).push<String>(
       MaterialPageRoute(builder: (_) => NoteEditor(noteId: widget.noteId)),
@@ -162,7 +190,7 @@ class _StickyWindowState extends State<StickyWindow> with WindowListener {
     final note = _note;
     if (note == null) {
       return const Scaffold(
-        backgroundColor: SeqTokens.noteYellow,
+        backgroundColor: Color(0xFFFFF7D1),
         body: Center(child: Text('便签不存在')),
       );
     }
@@ -175,22 +203,30 @@ class _StickyWindowState extends State<StickyWindow> with WindowListener {
     final doneCount = _items.where((i) => i.isDone).length;
 
     final view = Scaffold(
-      backgroundColor: SeqTokens.noteYellow,
+      backgroundColor: const Color(0xFFFFF7D1),
+      bottomNavigationBar: _toolsVisible == null ? null : Visibility(visible: _toolsVisible!, maintainState: true, child: NoteMediaBar(
+              noteId: widget.noteId, onChanged: _reload, leading: [
+                _TitleAction(icon: Icons.edit_outlined, tooltip: '编辑便签', onPressed: _edit),
+                OrganizeButton(noteId: widget.noteId, onApplied: _reload, compact: true),
+                _TitleAction(icon: _pinned ? Icons.push_pin : Icons.push_pin_outlined,
+                  tooltip: _pinned ? '取消置顶' : '置顶',
+                  onPressed: _pinning || AppScope.of(context).windows == null ? null : _togglePin),
+              ],
+            )),
       body: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _TitleBar(
-            title: note.title ?? '便签',
-            onEdit: _edit,
+          if (_toolsVisible != true && note.title?.isNotEmpty == true)
+            Padding(padding: const EdgeInsets.fromLTRB(14, 10, 14, 0),
+              child: Text(note.title!, maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: SeqTokens.noteInk, fontWeight: FontWeight.w600))),
+          if (_toolsVisible != null) Visibility(visible: _toolsVisible!, maintainState: true, child: _TitleBar(
+            title: note.title ?? '',
+            onNew: _newNote,
             onArchive: _archive,
             onTrash: _trash,
-            organizeButton: OrganizeButton(noteId: widget.noteId, onApplied: _reload, compact: true),
-            pinned: _pinned,
-            onPin: _pinning || AppScope.of(context).windows == null
-                ? null
-                : _togglePin,
             onClose: widget.onClose,
-          ),
+          )),
           Expanded(
             child: ListView.builder(
               padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
@@ -215,7 +251,7 @@ class _StickyWindowState extends State<StickyWindow> with WindowListener {
                         },
                   onEdit: item == null ? null : () => _editItem(item),
                   onConvert:
-                      extra || item != null || lines[index].trim().isEmpty
+                      _toolsVisible != true || extra || item != null || lines[index].trim().isEmpty
                       ? null
                       : () {
                           _currentRow = index;
@@ -230,7 +266,11 @@ class _StickyWindowState extends State<StickyWindow> with WindowListener {
         ],
       ),
     );
-    return StickyShortcuts(
+    return Focus(canRequestFocus: false, onKeyEvent: (_, event) {
+      if (_toolsVisible != true && event is KeyDownEvent) _activateTools();
+      return KeyEventResult.ignored;
+    },
+      child: StickyShortcuts(
       actions: {
         StickyIntent.toggleItem: () => _activateCurrent(),
         StickyIntent.complete: () => _activateCurrent(complete: true),
@@ -239,7 +279,11 @@ class _StickyWindowState extends State<StickyWindow> with WindowListener {
         StickyIntent.search: _search,
         if (widget.onClose case final close?) StickyIntent.dismiss: close,
       },
-      child: view,
+        child: Semantics(onTap: _toolsVisible == true ? null : _activateTools,
+          child: Listener(behavior: HitTestBehavior.opaque,
+            onPointerUp: _toolsVisible == true ? null : (_) => _activateTools(),
+            child: view)),
+      ),
     );
   }
 }
@@ -247,34 +291,30 @@ class _StickyWindowState extends State<StickyWindow> with WindowListener {
 class _TitleBar extends StatelessWidget {
   const _TitleBar({
     required this.title,
-    required this.onEdit,
+    required this.onNew,
     required this.onArchive,
     required this.onTrash,
-    required this.organizeButton,
-    required this.pinned,
-    this.onPin,
     this.onClose,
   });
 
   final String title;
-  final VoidCallback onEdit;
+  final VoidCallback onNew;
   final VoidCallback onArchive;
   final VoidCallback onTrash;
-  final Widget organizeButton;
-  final bool pinned;
-  final VoidCallback? onPin;
   final VoidCallback? onClose;
 
   @override
   Widget build(BuildContext context) {
     return Container(
       height: 34,
-      padding: const EdgeInsets.only(left: 14, right: 8),
-      color: SeqTokens.noteInk.withValues(alpha: 0.06),
+      padding: const EdgeInsets.symmetric(horizontal: 3),
+      color: const Color(0xFFFFF0AD),
       child: Row(
         children: [
-          Expanded(
-            child: Text(
+          _TitleAction(icon: Icons.add, tooltip: '新建便签', onPressed: onNew),
+          Expanded(child: GestureDetector(behavior: HitTestBehavior.opaque,
+            onPanStart: (_) => windowManager.startDragging(),
+            child: SizedBox.expand(child: Align(alignment: Alignment.centerLeft, child: Text(
               title,
               style: const TextStyle(
                 fontSize: 12,
@@ -282,19 +322,7 @@ class _TitleBar extends StatelessWidget {
                 color: Color(0xFF7A6620),
               ),
               overflow: TextOverflow.ellipsis,
-            ),
-          ),
-          _TitleAction(
-            icon: Icons.edit_outlined,
-            tooltip: '编辑便签',
-            onPressed: onEdit,
-          ),
-          organizeButton,
-          _TitleAction(
-            icon: pinned ? Icons.push_pin : Icons.push_pin_outlined,
-            tooltip: pinned ? '取消置顶' : '置顶',
-            onPressed: onPin,
-          ),
+            ))))),
           PopupMenuButton<String>(
             tooltip: '更多操作',
             icon: const Icon(Icons.more_horiz, size: 18),

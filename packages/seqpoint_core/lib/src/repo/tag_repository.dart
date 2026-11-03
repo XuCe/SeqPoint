@@ -39,6 +39,7 @@ class TagRepository {
   Set<int>? _builtinRoles() {
     final roles = all().map((t) => builtinTypeRole(t.id, kind: t.kind.dbValue,
         builtin: t.builtin ? 1 : 0, sort: t.sort)).whereType<int>().toSet();
+    if (roles.length == builtinTypeTags.length) return roles;
     final facts = <String, Map<String, Object?>>{};
     for (final row in _db.raw.select('''
       SELECT object_id,field,value_json FROM (

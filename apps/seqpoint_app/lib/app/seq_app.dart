@@ -82,9 +82,11 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
   late final Future<Bootstrap> _boot = getApplicationSupportDirectory().then((
     directory,
   ) async {
-    await directory.create(recursive: true);
+    final stickyWindow = widget._stickyNoteId != null;
+    if (!stickyWindow) await directory.create(recursive: true);
     final boot = await Bootstrap.run(
       dbPath: '${directory.path}${Platform.pathSeparator}seqpoint.db',
+      stickyWindow: stickyWindow,
     );
     if (!mounted) {
       boot.dispose();

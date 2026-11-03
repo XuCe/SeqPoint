@@ -15,9 +15,9 @@ Map<String, PlannedReminder> reminderPlans(SeqDatabase db, DateTime now,
     final at = time.toUtc();
     result['${item.id}|${at.toIso8601String()}'] = (item: item, fireAt: at);
   }
-  final reminders = ReminderRepository(db);
-  for (final item in ItemRepository(db).remindable()) {
-    final records = reminders.forItem(item.id);
+  final reminders = ReminderRepository(db).enabledForOpenItems();
+  for (final item in ItemRepository(db).remindable(withTriggerOnly: true)) {
+    final records = reminders[item.id] ?? const <Reminder>[];
     final snoozes = records.where((r) => r.enabled &&
       r.mode == ReminderMode.exact && r.feedback == ReminderFeedback.snoozed)
       .map((r) => r.triggerAt).whereType<DateTime>().toList()..sort();
@@ -125,7 +125,7 @@ class ReminderCoordinator extends ChangeNotifier {
     try {
       final granted = await _notifications.requestPermission();
       if (_stopped) return;
-      await _apply(reminderPlans(_db, _clock.now()), granted);
+      await _apply(granted);
       error = granted ? null : '通知权限未启用';
     } catch (e) {
       error = '提醒调度失败：$e';
@@ -134,8 +134,10 @@ class ReminderCoordinator extends ChangeNotifier {
     if (!_stopped) notifyListeners();
   });
 
-  Future<void> _apply(Map<String, PlannedReminder> desired, bool granted) async {
-    final valid = reminderPlans(_db, _clock.now(), includePast: true);
+  Future<void> _apply(bool granted) async {
+    final now = _clock.now();
+    final valid = reminderPlans(_db, now, includePast: true);
+    final desired = Map.fromEntries(valid.entries.where((e) => e.value.fireAt.isAfter(now)));
     final pendingCatchUp = _prepareCatchUp(valid);
     for (final entry in desired.entries) {
       plans.ensure(key: entry.key, itemId: entry.value.item.id,
@@ -146,7 +148,8 @@ class ReminderCoordinator extends ChangeNotifier {
     bool wanted(NotificationPlan plan) => desired.containsKey(plan.key) ||
       (plan.key.startsWith('catchup|') && (plan.state != 'scheduled' || plan.fireAt.isAfter(_clock.now())
         ? plan.key == pendingCatchUp : hasOverdue));
-    final eligible = plans.active().where((p) => wanted(p) &&
+    final active = plans.active();
+    final eligible = active.where((p) => wanted(p) &&
       (p.state != 'scheduled' || p.fireAt.isAfter(_clock.now()))).toList()
       ..sort((a, b) {
         final order = a.fireAt.compareTo(b.fireAt);
@@ -155,7 +158,7 @@ class ReminderCoordinator extends ChangeNotifier {
     final selected = eligible.take(capacity ?? eligible.length)
       .map((p) => p.id).toSet();
     deferredCount = eligible.length - selected.length;
-    for (final plan in plans.active()) {
+    for (final plan in active) {
       if (plan.state == 'scheduled' && !plan.fireAt.isAfter(_clock.now()) &&
           (valid.containsKey(plan.key) ||
             (plan.key.startsWith('catchup|') && hasOverdue))) {

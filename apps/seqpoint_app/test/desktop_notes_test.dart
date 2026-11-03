@@ -151,6 +151,8 @@ void main() {
     final note = boot.noteService.capture('原始正文\n保留待办');
     final item = boot.noteService.lineToItem(note.id, 1);
     await tester.pumpWidget(_app(boot, StickyWindow(noteId: note.id)));
+    await tester.tapAt(const Offset(4, 4));
+    await tester.pump();
     await tester.tap(find.byTooltip('编辑便签'));
     await tester.pumpAndSettle();
     expect(

@@ -321,11 +321,7 @@ class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindi
       return const Scaffold(key: ValueKey('restore-busy'), body: Center(child: CircularProgressIndicator(
           semanticsLabel: '正在恢复本机快照')));
     }
-    final now = DateTime.now();
-    final todayCount = {
-      ...scope.items.dueOn(now).map((item) => item.id),
-      ...scope.items.overdue(now).map((item) => item.id),
-    }.length;
+    final todayCount = scope.items.dueThroughTodayCount(DateTime.now());
 
     return Scaffold(
       body: Row(

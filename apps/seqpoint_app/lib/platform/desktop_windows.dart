@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:ui';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
@@ -134,6 +135,7 @@ class StickyWindowSetup {
 
     await windowManager.ensureInitialized();
     await windowManager.waitUntilReadyToShow();
+    if (Platform.isWindows) await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
     final frame = WindowFrame.fromJson(
       (json['frame'] as Map?)?.cast<String, Object?>(),
     );

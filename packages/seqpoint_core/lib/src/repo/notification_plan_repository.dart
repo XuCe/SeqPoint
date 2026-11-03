@@ -26,15 +26,18 @@ class NotificationPlanRepository {
     required String key, required String itemId, required DateTime fireAt,
     bool reactivate = true,
   }) {
+    const lookup = 'SELECT * FROM notification_plans WHERE plan_key=?';
+    final existing = _db.raw.select(lookup, [key]).firstOrNull;
+    if (existing != null && (!reactivate || existing['state'] != 'retired')) {
+      return _read(existing);
+    }
     _db.raw.execute(
       'INSERT INTO notification_plans (plan_key,item_id,fire_at,state) '
       "VALUES (?,?,?,'pending') ON CONFLICT(plan_key) DO UPDATE SET "
       "state=CASE WHEN state='retired' AND ? THEN 'pending' ELSE state END",
       [key, itemId, encodeTime(fireAt), reactivate ? 1 : 0],
     );
-    return _read(_db.raw.select(
-      'SELECT * FROM notification_plans WHERE plan_key=?', [key],
-    ).single);
+    return _read(_db.raw.select(lookup, [key]).single);
   }
 
   void setState(int id, String state) {

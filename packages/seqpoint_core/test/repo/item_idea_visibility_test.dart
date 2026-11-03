@@ -26,6 +26,7 @@ void main() {
     TagRepository(db).ensureBuiltins();
     final reopened = ItemRepository(db);
     expect(TagRepository(db).all(), hasLength(9));
+    expect(reopened.dueThroughTodayCount(day), 1);
     expect(reopened.remindable().map((i) => i.id), ['item-0']);
     expect(reopened.dueOn(day).map((i) => i.id), ['item-0']);
     expect(reopened.overdue(day.add(const Duration(hours: 1)))
@@ -64,6 +65,7 @@ void main() {
     }
     const visible = ['builtin-type:0', 'project', 'custom', 'legacy-other'];
     expect(repo.openAll(), hasLength(7));
+    expect(repo.dueThroughTodayCount(day), visible.length);
     expect(repo.remindable().map((i) => i.id), unorderedEquals(visible));
     expect(repo.dueOn(day).map((i) => i.id), unorderedEquals(visible));
     expect(repo.overdue(day.add(const Duration(hours: 2))).map((i) => i.id),

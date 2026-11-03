@@ -31,6 +31,29 @@ void _focusWindow() {
 }
 
 void main() {
+  testWidgets('自动聚焦保持工具栏隐藏，点击显示，失焦再次收起', (t) async {
+    await t.binding.setSurfaceSize(const Size(337, 307));
+    addTearDown(() => t.binding.setSurfaceSize(null));
+    final (local, _) = await _openWindows();
+    final note = local.noteService.capture('单击选中便签');
+    await t.pumpWidget(_app(local, note.id));
+    _focusWindow();
+    await t.pump();
+    expect(find.byTooltip('新建便签'), findsNothing);
+    await t.tap(find.text('单击选中便签'));
+    await t.pump();
+    expect(find.byTooltip('新建便签'), findsOneWidget);
+    expect(find.byTooltip('编辑便签'), findsOneWidget);
+    expect(local.items.byNote(note.id), isEmpty);
+    for (final listener in windowManager.listeners) {
+      listener.onWindowBlur();
+    }
+    await t.pump();
+    expect(find.byTooltip('新建便签'), findsNothing);
+    expect(find.byTooltip('编辑便签'), findsNothing);
+    expect(find.text('单击选中便签'), findsOneWidget);
+  });
+
   testWidgets('便签获得焦点后显示另一个数据库连接保存的正文', (t) async {
     final (local, other) = await _openWindows();
     final note = local.noteService.capture('原始正文');
@@ -77,6 +100,8 @@ void main() {
     final (local, other) = await _openWindows();
     final note = local.noteService.capture('原始正文');
     await t.pumpWidget(_app(local, note.id));
+    await t.tapAt(const Offset(4, 4));
+    await t.pump();
     await t.tap(find.byTooltip('编辑便签'));
     await t.pumpAndSettle();
     await t.enterText(find.byType(TextField), '本地未保存草稿');
@@ -128,6 +153,8 @@ void main() {
       final note = local.noteService.capture('原始事项', title: '原始标题');
       final item = local.noteService.lineToItem(note.id, 0);
       await t.pumpWidget(_app(local, note.id));
+      await t.tapAt(const Offset(4, 4));
+      await t.pump();
       await t.tap(find.byTooltip(mode == '正文' ? '编辑便签' : '编辑事项'));
       await t.pumpAndSettle();
       await t.enterText(find.byType(TextField), '正在输入的草稿');
@@ -155,6 +182,8 @@ void main() {
     final (local, other) = await _openWindows();
     final note = local.noteService.capture('原始正文');
     await t.pumpWidget(_app(local, note.id));
+    await t.tapAt(const Offset(4, 4));
+    await t.pump();
     await t.tap(find.byTooltip('编辑便签'));
     await t.pumpAndSettle();
     await t.enterText(find.byType(TextField), '失败后保留的草稿');

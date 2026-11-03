@@ -12,7 +12,9 @@ void main() {
         '2026-10-26T15:00:00.000000Z');
     expect(first.state, 'pending');
     repo.setState(first.id, 'scheduled');
+    final writes = db.raw.select('SELECT total_changes()').single.columnAt(0);
     final again = repo.ensure(key: 'i:due', itemId: 'i', fireAt: when);
+    expect(db.raw.select('SELECT total_changes()').single.columnAt(0), writes);
     expect(again.id, first.id);
     expect(again.state, 'scheduled');
     repo.setState(first.id, 'cancel_pending');

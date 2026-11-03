@@ -18,6 +18,7 @@ class MeetingPanel extends StatefulWidget {
     required this.noteId,
     required this.noteService,
     this.enabled = true,
+    this.actionOnly = false,
     this.beforeOpen,
     this.onChanged,
     this.service,
@@ -26,6 +27,7 @@ class MeetingPanel extends StatefulWidget {
   final String noteId;
   final NoteService noteService;
   final bool enabled;
+  final bool actionOnly;
   final FutureOr<void> Function()? beforeOpen;
   final VoidCallback? onChanged;
   final AttachmentService? service;
@@ -44,7 +46,7 @@ class _MeetingPanelState extends State<MeetingPanel> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final revision=context.dependOnInheritedWidgetOfExactType<AppScope>()?.syncRevision;
-    if(_syncRevision!=null && revision!=_syncRevision && _service!=null) {
+    if(!widget.actionOnly && _syncRevision!=null && revision!=_syncRevision && _service!=null) {
       _recordings=_service!.list(noteId:widget.noteId,media:'audio');
     }
     _syncRevision=revision;
@@ -87,7 +89,7 @@ class _MeetingPanelState extends State<MeetingPanel> {
       if (!_current(generation)) return;
       setState(() {
         _service = service;
-        _recordings = service.list(noteId: noteId, media: 'audio');
+        if (!widget.actionOnly) _recordings = service.list(noteId: noteId, media: 'audio');
       });
     } catch (_) {
       if (_current(generation)) setState(() => _error = '无法读取本机录音，请重试');
@@ -175,8 +177,24 @@ class _MeetingPanelState extends State<MeetingPanel> {
     }
   }
 
+  Future<void> _recordFromToolbar() async {
+    if (_service == null) {
+      await _load();
+    } else {
+      await _open(true);
+    }
+    if (mounted && _error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_error!)));
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => Padding(
+  Widget build(BuildContext context) => widget.actionOnly ? IconButton(
+    tooltip: _service == null && _error != null ? '重试加载录音' : '会议录音',
+    icon: const Icon(Icons.graphic_eq_rounded),
+    onPressed: _busy || !widget.enabled || (_service == null && _error == null)
+        ? null : _recordFromToolbar,
+  ) : Padding(
     padding: const EdgeInsets.symmetric(vertical: 8),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,

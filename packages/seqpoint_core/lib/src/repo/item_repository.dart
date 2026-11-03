@@ -73,26 +73,50 @@ class ItemRepository {
       .toList();
 
   /// 全部未完成事项，最近创建的在前。用于"全部事项"列表。
-  List<Item> openAll({int limit = 500}) => _db.raw
+  List<Item> openAll({int limit = 500}) => _openItems(limit: limit);
+
+  List<Item> _openItems({required int limit, bool withTriggerOnly = false}) {
+    final triggerFilter = withTriggerOnly ? """
+      AND (due_at IS NOT NULL OR id IN (SELECT item_id FROM reminders
+           WHERE enabled = 1 AND mode IN ('exact', 'relative')))
+    """ : '';
+    return _db.raw
       .select("SELECT * FROM items WHERE status = 'todo' AND deleted_at IS NULL "
           'AND NOT EXISTS (SELECT 1 FROM notes n '
           'WHERE n.id = items.note_id AND n.deleted_at IS NOT NULL) '
-          'ORDER BY created_at DESC LIMIT ?', [limit])
+          '$triggerFilter ORDER BY created_at DESC LIMIT ?', [limit])
       .map(RowMappers.item)
       .toList();
+  }
 
   /// 调度必须覆盖全部未完成事项；SQLite LIMIT -1 表示不限制数量。
-  List<Item> remindable() => _withoutIdeas(openAll(limit: -1));
+  List<Item> remindable({bool withTriggerOnly = false}) =>
+      _withoutIdeas(_openItems(limit: -1, withTriggerOnly: withTriggerOnly));
+
+  List<String> _ideaTagIds() => _db.raw.select('SELECT * FROM tags').map(RowMappers.tag)
+      .where((tag) => tag.isIdea).map((tag) => tag.id).toList();
 
   List<Item> _withoutIdeas(List<Item> items) {
-    final tags = _db.raw.select('SELECT * FROM tags').map(RowMappers.tag)
-        .where((tag) => tag.isIdea).map((tag) => tag.id).toList();
+    if (items.isEmpty) return items;
+    final tags = _ideaTagIds();
     if (tags.isEmpty) return items;
     final placeholders = List.filled(tags.length, '?').join(',');
     final excluded = _db.raw.select(
         'SELECT item_id FROM item_tags WHERE tag_id IN ($placeholders)', tags)
         .map((row) => row['item_id'] as String).toSet();
     return items.where((item) => !excluded.contains(item.id)).toList();
+  }
+
+  int dueThroughTodayCount(DateTime day) {
+    final end = DateTime(day.year, day.month, day.day + 1);
+    final tags = _ideaTagIds();
+    final excludeIdeas = tags.isEmpty ? '' : 'AND NOT EXISTS (SELECT 1 FROM item_tags t '
+        'WHERE t.item_id = i.id AND t.tag_id IN (${List.filled(tags.length, '?').join(',')}))';
+    return _db.raw.select("""
+      SELECT COUNT(*) FROM items i LEFT JOIN notes n ON n.id = i.note_id
+      WHERE i.status = 'todo' AND i.deleted_at IS NULL AND n.deleted_at IS NULL
+        AND i.due_at < ? $excludeIdeas
+    """, [encodeTime(end), ...tags]).single.columnAt(0) as int;
   }
 
   /// 今日视图：当天到期的未完成事项。

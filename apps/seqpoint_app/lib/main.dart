@@ -26,10 +26,7 @@ Future<void> main(List<String> args) async {
       await rootBundle.loadString('assets/licenses/syncthing.txt'));
   });
 
-  final info = await PackageInfo.fromPlatform();
-  final title = '序点 ${info.version}';
   if (Platform.isMacOS || Platform.isWindows) {
-    await windowManager.ensureInitialized();
     final current = await WindowController.fromCurrentEngine();
     final noteId = await StickyWindowSetup.apply(current.arguments);
     if (noteId != null) {
@@ -40,7 +37,7 @@ Future<void> main(List<String> args) async {
       runApp(
         SeqApp.sticky(
           noteId: noteId,
-          title: title,
+          title: '便签',
           windows: DesktopWindowService(),
           onClose: () => windowManager.close(),
         ),
@@ -50,9 +47,7 @@ Future<void> main(List<String> args) async {
         await windowManager.focus();
       });
     } else {
-      await windowManager.setTitle(title);
       await _runMainApp(
-          title: title,
           windows: DesktopWindowService(),
           hotkeys: DesktopHotkeyService(isWindows: Platform.isWindows),
           tray: DesktopTrayService(),
@@ -61,11 +56,17 @@ Future<void> main(List<String> args) async {
     return;
   }
 
-  await _runMainApp(title: title);
+  await _runMainApp();
 }
 
-Future<void> _runMainApp({required String title, WindowService? windows, HotkeyService? hotkeys,
+Future<void> _runMainApp({WindowService? windows, HotkeyService? hotkeys,
     TrayService? tray}) async {
+  final info = await PackageInfo.fromPlatform();
+  final title = '序点 ${info.version}';
+  if (windows != null) {
+    await windowManager.ensureInitialized();
+    await windowManager.setTitle(title);
+  }
   NotificationService? notifications;
   String? notificationError;
   try {

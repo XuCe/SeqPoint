@@ -34,8 +34,6 @@ class _ItemRowState extends State<ItemRow> {
 
   @override
   Widget build(BuildContext context) {
-    final showCircle = widget.isItem || (_hovered && widget.onConvert != null);
-
     return MouseRegion(
       onEnter: (_) => setState(() => _hovered = true),
       onExit: (_) => setState(() => _hovered = false),
@@ -47,12 +45,9 @@ class _ItemRowState extends State<ItemRow> {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              SizedBox(
-                width: 26,
-                child: showCircle
-                    ? _Circle(done: widget.isDone, faded: !widget.isItem)
-                    : const SizedBox.shrink(),
-              ),
+              if (widget.isItem)
+                SizedBox(width: 26, child: Align(alignment: Alignment.centerLeft,
+                  child: _Circle(done: widget.isDone, faded: false))),
               Expanded(
                 child: Text(
                   widget.text.isEmpty ? ' ' : widget.text,
@@ -69,6 +64,8 @@ class _ItemRowState extends State<ItemRow> {
                   ),
                 ),
               ),
+              if (!widget.isItem && widget.onConvert != null)
+                SizedBox(width: 22, child: _hovered ? const _Circle(done: false, faded: true) : null),
               if (widget.isItem && widget.onEdit != null)
                 IconButton(
                   tooltip: '编辑事项',

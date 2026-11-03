@@ -43,6 +43,18 @@ void main() {
       DesktopWindowService().pauseStickyOpening(false);
       directory.deleteSync(recursive: true);
   });
+  testWidgets('打开便签子窗直接使用主窗数据库，不重复装配内置标签', (tester) async {
+    final main = await Bootstrap.run(dbPath: '${directory.path}/seqpoint.db');
+    addTearDown(main.dispose);
+    final note = main.noteService.capture('窗口中的正文');
+    main.db.raw.execute('DELETE FROM tags WHERE builtin = 1');
+    final scope = await _mountRoot(tester, app: SeqApp.sticky(noteId: note.id));
+    expect(find.text('窗口中的正文'), findsOneWidget);
+    expect(scope.tags.all().where((tag) => tag.builtin), isEmpty);
+    expect(scope.database!.raw.select('PRAGMA foreign_keys').single.columnAt(0), 1);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
+
   testWidgets('损坏快照在停写前被拒绝且当前容器数据不变', (tester) async {
     final scope = await _mountRoot(tester);
     scope.noteService.capture('旧数据保留');

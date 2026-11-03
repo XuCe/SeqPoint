@@ -22,6 +22,10 @@ void main() {
             items: boot.items, tags: boot.tags, search: boot.search,
             child: StickyWindow(noteId: note.id, onClose: () => closed++)),
         ));
+        expect(find.byTooltip('更多操作'), findsNothing);
+        await tester.tap(find.text('菜单验收'));
+        await tester.pump();
+        expect(boot.items.byNote(note.id), isEmpty);
         await tester.tap(find.byTooltip('更多操作'));
         await tester.pumpAndSettle();
         await tester.tap(find.text(action));

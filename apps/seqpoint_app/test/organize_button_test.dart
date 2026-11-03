@@ -230,6 +230,10 @@ void main() {
     testWidgets('${desktop ? '桌面便签' : '移动详情'}实际入口先预览，采纳后刷新已保存便签', (tester) async {
       await tester.pumpWidget(app(body: desktop ? StickyWindow(noteId: note.id) : NoteDetailPage(noteId: note.id)));
       await tester.pumpAndSettle();
+      if (desktop) {
+        await tester.tapAt(const Offset(4, 4));
+        await tester.pump();
+      }
       expect(find.byType(OrganizeButton), findsOneWidget);
       await tester.tap(find.byTooltip('整理')); await tester.pumpAndSettle();
       expect(find.text('整理预览'), findsOneWidget); expect(boot.items.byNote(note.id), isEmpty);

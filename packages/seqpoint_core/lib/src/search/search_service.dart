@@ -46,82 +46,43 @@ class SearchService {
   List<SearchHit> _byFts(String q, bool includeArchived) {
     // FTS5 里双引号包裹的是短语，内部的双引号需转义为两个。
     final phrase = '"${q.replaceAll('"', '""')}"';
-    final rows = _db.raw.select(
-      'SELECT object_type, object_id, text FROM search_index '
-      'WHERE search_index MATCH ? ORDER BY rank',
-      [phrase],
-    );
-    return _resolve(
-      rows.map((r) => (
-            r['object_type'] as String,
-            r['object_id'] as String,
-            r['text'] as String,
-          )),
-      includeArchived,
-    );
+    return _db.raw.select("""
+      SELECT s.object_type, s.object_id, s.text,
+             CASE WHEN n.id IS NOT NULL THEN n.status = 'closed' ELSE i.status != 'todo' END AS archived
+      FROM search_index s
+      LEFT JOIN notes n ON s.object_type = 'note' AND n.id = s.object_id
+      LEFT JOIN items i ON s.object_type = 'item' AND i.id = s.object_id
+      LEFT JOIN notes parent ON parent.id = i.note_id
+      WHERE search_index MATCH ? AND (
+        (n.id IS NOT NULL AND n.deleted_at IS NULL AND (? OR n.status != 'closed'))
+        OR (i.id IS NOT NULL AND i.deleted_at IS NULL AND parent.deleted_at IS NULL
+            AND (? OR i.status = 'todo'))
+      ) ORDER BY s.rank
+    """, [phrase, includeArchived, includeArchived]).map(_hit).toList();
   }
 
   /// 一两个字的查询：trigram 索引用不上，扫原表。数据量小，可以接受。
   List<SearchHit> _byLike(String q, bool includeArchived) {
     final pattern = '%${q.replaceAll('%', r'\%').replaceAll('_', r'\_')}%';
-    final rows = _db.raw.select(
-      "SELECT 'note' AS object_type, id AS object_id, raw_content AS text "
-      "FROM notes WHERE deleted_at IS NULL AND raw_content LIKE ? ESCAPE '\\' "
-      'UNION ALL '
-      "SELECT 'item', id, title FROM items "
-      "WHERE deleted_at IS NULL AND title LIKE ? ESCAPE '\\'",
-      [pattern, pattern],
-    );
-    return _resolve(
-      rows.map((r) => (
-            r['object_type'] as String,
-            r['object_id'] as String,
-            r['text'] as String,
-          )),
-      includeArchived,
-    );
+    return _db.raw.select("""
+      SELECT 'note' AS object_type, id AS object_id, raw_content AS text,
+             status = 'closed' AS archived
+      FROM notes WHERE deleted_at IS NULL AND raw_content LIKE ? ESCAPE '\\'
+        AND (? OR status != 'closed')
+      UNION ALL
+      SELECT 'item', i.id, i.title, i.status != 'todo'
+      FROM items i LEFT JOIN notes n ON n.id = i.note_id
+      WHERE i.deleted_at IS NULL AND n.deleted_at IS NULL AND i.title LIKE ? ESCAPE '\\'
+        AND (? OR i.status = 'todo')
+    """, [pattern, includeArchived, pattern, includeArchived]).map(_hit).toList();
   }
 
-  /// 过滤掉已软删除的对象，并标出归档态。索引里可能残留刚被删除的行。
-  List<SearchHit> _resolve(
-    Iterable<(String, String, String)> raw,
-    bool includeArchived,
-  ) {
-    final hits = <SearchHit>[];
-    for (final (type, id, text) in raw) {
-      final archived = switch (type) {
-        'note' => _noteArchived(id),
-        'item' => _itemArchived(id),
-        _ => null,
-      };
-      if (archived == null) continue; // 已删除或不存在
-      if (archived && !includeArchived) continue;
-      hits.add(SearchHit(
-        objectType: type,
-        objectId: id,
-        text: text,
-        archived: archived,
-      ));
-    }
-    return hits;
-  }
-
-  /// 返回 null 表示对象已删除。
-  bool? _noteArchived(String id) {
-    final rows = _db.raw.select(
-        'SELECT status, deleted_at FROM notes WHERE id = ?', [id]);
-    if (rows.isEmpty || rows.first['deleted_at'] != null) return null;
-    return rows.first['status'] == 'closed';
-  }
-
-  bool? _itemArchived(String id) {
-    final rows = _db.raw
-        .select('SELECT status, deleted_at FROM items WHERE id = ? '
-            'AND NOT EXISTS (SELECT 1 FROM notes n '
-            'WHERE n.id = items.note_id AND n.deleted_at IS NOT NULL)', [id]);
-    if (rows.isEmpty || rows.first['deleted_at'] != null) return null;
-    return rows.first['status'] != 'todo';
-  }
+  SearchHit _hit(Map<String, Object?> row) => SearchHit(
+    objectType: row['object_type'] as String,
+    objectId: row['object_id'] as String,
+    text: row['text'] as String,
+    archived: row['archived'] == 1,
+  );
 
   // ---- 索引维护 ----
 

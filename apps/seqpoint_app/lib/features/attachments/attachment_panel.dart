@@ -15,6 +15,7 @@ class AttachmentPanel extends StatefulWidget {
     this.noteId,
     this.itemId,
     this.enabled = true,
+    this.actionOnly = false,
     this.service,
     this.picker,
   }) : assert((noteId == null) != (itemId == null));
@@ -22,6 +23,7 @@ class AttachmentPanel extends StatefulWidget {
   final String? noteId;
   final String? itemId;
   final bool enabled;
+  final bool actionOnly;
   final AttachmentService? service;
   final AttachmentPicker? picker;
 
@@ -40,7 +42,7 @@ class _AttachmentPanelState extends State<AttachmentPanel> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     final revision=context.dependOnInheritedWidgetOfExactType<AppScope>()?.syncRevision;
-    if(_syncRevision!=null && revision!=_syncRevision && _service!=null) {
+    if(!widget.actionOnly && _syncRevision!=null && revision!=_syncRevision && _service!=null) {
       _images=_service!.list(noteId:widget.noteId,itemId:widget.itemId);
     }
     _syncRevision=revision;
@@ -82,7 +84,7 @@ class _AttachmentPanelState extends State<AttachmentPanel> {
       if (!_current(generation)) return;
       setState(() {
         _service = service;
-        _images = service.list(noteId: widget.noteId, itemId: widget.itemId);
+        if (!widget.actionOnly) _images = service.list(noteId: widget.noteId, itemId: widget.itemId);
       });
     } catch (_) {
       if (_current(generation)) setState(() => _error = '无法读取本机图片，请重试');
@@ -108,7 +110,7 @@ class _AttachmentPanelState extends State<AttachmentPanel> {
       );
       if (_current(generation)) {
         setState(() {
-          _images = service.list(noteId: widget.noteId, itemId: widget.itemId);
+          if (!widget.actionOnly) _images = service.list(noteId: widget.noteId, itemId: widget.itemId);
         });
       }
     } catch (_) {
@@ -136,14 +138,30 @@ class _AttachmentPanelState extends State<AttachmentPanel> {
       if (_current(generation)) {
         setState(() {
           _busy = false;
-          _images = service.list(noteId: widget.noteId, itemId: widget.itemId);
+          if (!widget.actionOnly) _images = service.list(noteId: widget.noteId, itemId: widget.itemId);
         });
       }
     }
   }
 
+  Future<void> _addFromToolbar() async {
+    if (_service == null) {
+      await _load();
+    } else {
+      await _add();
+    }
+    if (mounted && _error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(_error!)));
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => Padding(
+  Widget build(BuildContext context) => widget.actionOnly ? IconButton(
+    tooltip: _service == null && _error != null ? '重试加载图片' : '添加图片',
+    icon: const Icon(Icons.image_outlined),
+    onPressed: _busy || !widget.enabled || (_service == null && _error == null)
+        ? null : _addFromToolbar,
+  ) : Padding(
     padding: const EdgeInsets.symmetric(vertical: 8),
     child: Column(
       mainAxisSize: MainAxisSize.min,

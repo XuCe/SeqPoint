@@ -1,11 +1,9 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:window_manager/window_manager.dart';
 
 import '../../app/app_scope.dart';
-import '../../features/attachments/attachment_panel.dart';
-import '../../features/meetings/meeting_panel.dart';
+import 'note_media_bar.dart';
 import '../../features/voice/voice_input_button.dart';
 import '../../theme/seq_tokens.dart';
 
@@ -77,27 +75,32 @@ class _NoteEditorState extends State<NoteEditor> {
         const SingleActivator(LogicalKeyboardKey.enter, control: true): _save,
         const SingleActivator(LogicalKeyboardKey.enter, meta: true): _save,
       },
-      child: LayoutBuilder(builder: (context, constraints) => Scaffold(
-        backgroundColor: SeqTokens.noteYellow,
+      child: Scaffold(
+        backgroundColor: const Color(0xFFFFF7D1),
         bottomNavigationBar: widget.noteId == null || database == null ? null
-            : SafeArea(child: ConstrainedBox(constraints: BoxConstraints(
-                maxHeight: math.min(240, constraints.maxHeight / 3)),
-                child: SingleChildScrollView(child: Column(mainAxisSize: MainAxisSize.min, children: [
-                  AttachmentPanel(database: database, noteId: widget.noteId, enabled: !scope.restoring),
-                  MeetingPanel(database: database, noteId: widget.noteId!, noteService: scope.noteService,
-                    enabled: !scope.restoring,
-                    beforeOpen: () { scope.noteService.editContent(widget.noteId!, _controller.text); },
-                    onChanged: () { if (mounted) { setState(() {
-                      _controller.text = scope.notes.byId(widget.noteId!)?.rawContent ?? _controller.text;
-                    }); } }),
-                ])))),
+            : SafeArea(child: NoteMediaBar(noteId: widget.noteId!,
+                beforeMeeting: () => scope.noteService.editContent(widget.noteId!, _controller.text),
+                onChanged: () {
+                  if (mounted) _controller.text = scope.notes.byId(widget.noteId!)?.rawContent ?? _controller.text;
+                })),
         appBar: AppBar(
-          title: Text(widget.noteId == null ? '新建便签' : '编辑便签'),
+          toolbarHeight: 40,
+          backgroundColor: const Color(0xFFFFF0AD),
+          foregroundColor: SeqTokens.noteInk,
+          title: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onPanStart: (_) => windowManager.startDragging(),
+            child: SizedBox(width: double.infinity, height: 40,
+              child: Align(alignment: Alignment.centerLeft, child: Text(
+                widget.noteId == null ? '新建便签' : '编辑便签',
+                style: const TextStyle(fontSize: 14)))),
+          ),
           actions: [
             VoiceInputButton(controller: _controller, enabled: !scope.restoring && !_saving),
             ValueListenableBuilder<TextEditingValue>(
               valueListenable: _controller,
               builder: (_, value, child) => TextButton(
+                style: TextButton.styleFrom(foregroundColor: SeqTokens.noteInk),
                 onPressed: _saving || value.text.trim().isEmpty ? null : _save,
                 child: child!,
               ),
@@ -106,7 +109,7 @@ class _NoteEditorState extends State<NoteEditor> {
           ],
         ),
         body: Padding(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
           child: TextField(
             controller: _controller,
             autofocus: true,
@@ -114,13 +117,12 @@ class _NoteEditorState extends State<NoteEditor> {
             maxLines: null,
             style: const TextStyle(color: SeqTokens.noteInk, height: 1.6),
             decoration: const InputDecoration(
-              labelText: '便签内容',
               hintText: '想到什么就写什么，一行一件事',
               border: InputBorder.none,
             ),
           ),
         ),
-      )),
+      ),
     );
   }
 }

@@ -13,7 +13,7 @@ class NoteWallView extends StatefulWidget {
 }
 
 class _NoteWallViewState extends State<NoteWallView> {
-  List<Note> _notes = const [];
+  late NoteWallSnapshot _notes;
   bool _opening = false;
 
   @override
@@ -23,7 +23,7 @@ class _NoteWallViewState extends State<NoteWallView> {
   }
 
   void _reload() =>
-      setState(() => _notes = AppScope.of(context).notes.active());
+      setState(() => _notes = AppScope.of(context).notes.activeWithProgress());
 
   Future<void> _open(Note note) async {
     final windows = AppScope.of(context).windows;
@@ -60,13 +60,12 @@ class _NoteWallViewState extends State<NoteWallView> {
       ),
       itemCount: _notes.length,
       itemBuilder: (context, i) {
-        final note = _notes[i];
-        final items = AppScope.of(context).items.byNote(note.id);
+        final entry = _notes[i];
         return NoteCard(
-          note: note,
-          doneCount: items.where((it) => it.isDone).length,
-          totalCount: items.length,
-          onTap: () => _open(note),
+          note: entry.note,
+          doneCount: entry.done,
+          totalCount: entry.total,
+          onTap: () => _open(entry.note),
         );
       },
     );

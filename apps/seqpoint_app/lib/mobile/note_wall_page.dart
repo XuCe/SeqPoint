@@ -19,7 +19,7 @@ class NoteWallPage extends StatefulWidget {
 
 class _NoteWallPageState extends State<NoteWallPage> {
   int _view = 0;
-  List<Note> _notes = const [];
+  late NoteWallSnapshot _notes;
   List<Item> _items = const [];
 
   Future<void> _search() async {
@@ -33,11 +33,15 @@ class _NoteWallPageState extends State<NoteWallPage> {
     _reload();
   }
 
-  void _reload() {
+  void _reload({int? view}) {
     final scope = AppScope.of(context);
     setState(() {
-      _notes = scope.notes.active();
-      _items = scope.items.openAll();
+      _view = view ?? _view;
+      if (_view == 0) {
+        _notes = scope.notes.activeWithProgress();
+      } else {
+        _items = scope.items.openAll();
+      }
     });
   }
 
@@ -65,7 +69,7 @@ class _NoteWallPageState extends State<NoteWallPage> {
                     ],
                     selected: {_view},
                     showSelectedIcon: false,
-                    onSelectionChanged: (s) => setState(() => _view = s.first),
+                    onSelectionChanged: (s) => _reload(view: s.first),
                   ),
                 ),
                 IconButton(
@@ -95,14 +99,12 @@ class _NoteWallPageState extends State<NoteWallPage> {
       ),
       itemCount: _notes.length,
       itemBuilder: (context, i) {
-        final note = _notes[i];
-        final scope = AppScope.of(context);
-        final items = scope.items.byNote(note.id);
+        final entry = _notes[i];
         return NoteCard(
-          note: note,
-          doneCount: items.where((it) => it.isDone).length,
-          totalCount: items.length,
-          onTap: () => _openNote(note),
+          note: entry.note,
+          doneCount: entry.done,
+          totalCount: entry.total,
+          onTap: () => _openNote(entry.note),
         );
       },
     );

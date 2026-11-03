@@ -16,8 +16,8 @@ class Bootstrap {
 
   /// [dbPath] 为空时用内存库，便于测试与首次演示。
   static Future<Bootstrap> run({String? dbPath,
-      bool recoverPendingRestore = true}) async {
-    if (recoverPendingRestore && dbPath != null && dbPath != ':memory:') {
+      bool recoverPendingRestore = true, bool stickyWindow = false}) async {
+    if (!stickyWindow && recoverPendingRestore && dbPath != null && dbPath != ':memory:') {
       await RestoreSession.recover(dbPath);
     }
     final db = dbPath == null ? SeqDatabase.inMemory() : SeqDatabase.open(dbPath);
@@ -26,7 +26,9 @@ class Bootstrap {
 
       final notes = NoteRepository(db);
       final items = ItemRepository(db);
-      final tags = TagRepository(db)..ensureBuiltins();
+      final tags = TagRepository(db);
+      // 子窗复用主窗已初始化的库，避免每次开窗重新扫描标签同步历史。
+      if (!stickyWindow) tags.ensureBuiltins();
       final activities = ActivityRepository(db);
       final search = SearchService(db);
 
