@@ -60,6 +60,20 @@ jobs:
       - uses: shorebirdtech/setup-shorebird@v1
         with:
           cache: true
+      - uses: subosito/flutter-action@v2
+        if: inputs.platform == 'windows'
+        with:
+          flutter-version: '3.47.2'
+          channel: stable
+          cache: true
+      - name: Windows 同步缓存路径回归
+        if: inputs.platform == 'windows'
+        shell: bash
+        run: |
+          bash scripts/prepare_test_tls.sh
+          dart pub get
+          cd packages/seqpoint_core
+          dart test --reporter expanded test/sync/sync_cache_gc_test.dart
       - uses: actions/setup-java@v4
         if: inputs.platform == 'android'
         with:

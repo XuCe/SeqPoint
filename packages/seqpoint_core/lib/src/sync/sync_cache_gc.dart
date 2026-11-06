@@ -35,7 +35,7 @@ Future<int> collectSyncCache(SeqDatabase db,SyncFiles files,{DateTime? now}) asy
   try {
     await for(final entry in manifests.list(recursive:true,followLinks:false)) {
       if(entry is! File || !entry.path.endsWith('.json')) continue;
-      final relative=entry.path.substring(files.root.path.length+1);
+      final relative=entry.path.substring(files.root.path.length+1).replaceAll(Platform.pathSeparator,'/');
       final hash=relative.split('/').last.replaceFirst('.json','');
       final header=_header(await files.read(relative,limit:SyncManifestCodec.maxBytes),hash);
       foundHashes.add(hash);
@@ -51,7 +51,7 @@ Future<int> collectSyncCache(SeqDatabase db,SyncFiles files,{DateTime? now}) asy
   if(blobs.existsSync()) {
     await for(final entry in blobs.list(recursive:true,followLinks:false)) {
       if(entry is! File || !entry.path.endsWith('.bin') || !entry.lastModifiedSync().isBefore(cutoff)) continue;
-      final relative=entry.path.substring(files.root.path.length+1);
+      final relative=entry.path.substring(files.root.path.length+1).replaceAll(Platform.pathSeparator,'/');
       if(!live.contains(relative)) remove.add(relative);
     }
   }
