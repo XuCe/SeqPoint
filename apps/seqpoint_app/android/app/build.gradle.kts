@@ -31,6 +31,7 @@ android {
     }
 
     defaultConfig {
+        manifestPlaceholders["hostedHost"] = System.getenv("HOSTED_HOST") ?: "unconfigured.invalid"
         applicationId = "com.seqpoint.app"
         // 设计文档定的下限：Android 8.0。同时满足各插件要求
         // （flutter_local_notifications 24、flutter_secure_storage 23）。

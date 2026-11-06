@@ -8,7 +8,7 @@ import '../../identity/device_keys.dart';
 import '../../util/result.dart';
 import 'vault_transport.dart';
 
-/// HTTPS store-and-forward for encrypted operations and signed membership.
+/// HTTP(S) store-and-forward for encrypted operations and signed membership.
 class RelayTransport implements VaultTransport {
   RelayTransport({
     required this.endpoint,
@@ -18,7 +18,7 @@ class RelayTransport implements VaultTransport {
   }) : _http = httpClient ?? HttpClient() {
     final uri = Uri.tryParse(endpoint);
     if (uri == null ||
-        uri.scheme != 'https' ||
+        (uri.scheme != 'https' && uri.scheme != 'http') ||
         uri.host.isEmpty ||
         uri.userInfo.isNotEmpty ||
         uri.hasQuery ||
@@ -26,7 +26,7 @@ class RelayTransport implements VaultTransport {
         (uri.path.isNotEmpty && uri.path != '/') ||
         !RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(vaultPublicId)) {
       _http.close(force: true);
-      throw ArgumentError('Relay requires an HTTPS origin and a vault ID');
+      throw ArgumentError('Relay requires an HTTP or HTTPS origin and a vault ID');
     }
     _http.connectionTimeout = const Duration(seconds: 15);
   }
@@ -40,6 +40,7 @@ class RelayTransport implements VaultTransport {
   static const maxFile = 12 * 1024 * 1024;
   static const timeout = Duration(seconds: 30);
   bool _closed = false;
+  int? lastRejectedStatus;
   void close() {
     _closed = true;
     _http.close(force: true);
@@ -229,6 +230,7 @@ class RelayTransport implements VaultTransport {
     request.add(body);
     final response = await request.close();
     if (response.statusCode != (method == 'PUT' ? 204 : 200)) {
+      lastRejectedStatus = response.statusCode;
       throw HttpException('Relay HTTP ${response.statusCode}', uri: uri);
     }
     final bytes = <int>[];

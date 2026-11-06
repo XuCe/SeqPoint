@@ -10,7 +10,6 @@ typedef _SyncthingSettings = ({
 extension _AppSyncSyncthing on AppSyncService {
   Future<SyncOutcome> _syncSyncthing({required bool automatic}) => _run(
     () async {
-      _requireSyncthing();
       if (automatic) {
         if (_closed || _userPaused || _suspended || !_automaticEnabled) {
           throw StateError('自动同步已暂停');
@@ -22,7 +21,9 @@ extension _AppSyncSyncthing on AppSyncService {
         final config = await _loadSyncthingTarget();
         if (!_syncthingEnabled) throw StateError('请先开启跨网同步');
         if (config == null) throw StateError('请先保存 Syncthing 配置');
+        _requireSyncthing(hosted: config.apiKey.isEmpty);
         final endpoint = await engineHost!.start();
+        if (config.apiKey.isEmpty) await _updateHostedRevocations(config);
         if (_syncthingSession != endpoint.baseUrl) {
           await _configureSyncthing(
             config.address,
@@ -30,7 +31,7 @@ extension _AppSyncSyncthing on AppSyncService {
             expectedNasId: config.deviceId,
           );
           if (!await _activateSyncthing(config)) throw StateError('同步已暂停');
-        } else {
+        } else if (config.apiKey.isNotEmpty) {
           // NAS replaces device arrays; a concurrent setup can overwrite membership.
           await SyncthingClient(
             EngineEndpoint(baseUrl: config.address, apiKey: config.apiKey),
@@ -60,16 +61,31 @@ extension _AppSyncSyncthing on AppSyncService {
         await _syncthingStatus(api, config.deviceId, result.value);
         return result.value;
       } catch (_) {
-        _syncthingMessage = '跨网同步未完成，请检查内网或 VPN、Syncthing 管理接口、密钥和传输连接';
+        _syncthingMessage = '跨网同步未完成，请检查节点连接后重试';
         await _stopSyncthing();
         rethrow;
       }
     },
   );
-  void _requireSyncthing() {
+  Future<void> _updateHostedRevocations(_SyncthingSettings config) async {
+    final revoked = _controller!.current!.state.revokedIds;
+    if (revoked.isEmpty) return;
+    final prefs = await SharedPreferences.getInstance();
+    final key = '$_syncthingKey.revoked.${config.revision}';
+    final sent = (prefs.getStringList(key) ?? []).toSet();
+    for (final id in revoked.difference(sent)) {
+      final remote = await HostedInvite.revoke(config.address, id).enroll(
+          _syncthingFolderId, (await engineHost!.localDeviceId())!, _local!.keys.signer);
+      if (remote != config.deviceId) throw StateError('节点身份已改变');
+      sent.add(id);
+      if (!await prefs.setStringList(key, sent.toList())) throw StateError('撤销状态保存失败');
+    }
+  }
+
+  void _requireSyncthing({bool hosted = false}) {
     if (!syncthingSupported ||
         !canSync ||
-        !verifiedPeers.any(
+        !hosted && !verifiedPeers.any(
           (peer) =>
               _controller!.authorize(relayVaultId!, peer.deviceId) != null,
         )) {
@@ -82,7 +98,7 @@ extension _AppSyncSyncthing on AppSyncService {
     String apiKey, {
     String? expectedNasId,
   }) async {
-    _requireSyncthing();
+    _requireSyncthing(hosted: apiKey.isEmpty);
     final key = _syncthingKey, version = membershipVersion;
     void ensure() {
       if (_closed ||
@@ -96,14 +112,11 @@ extension _AppSyncSyncthing on AppSyncService {
     final endpoint = await engineHost!.start();
     final localId = (await engineHost!.localDeviceId())!;
     ensure();
-    final nas = SyncthingClient(
-      EngineEndpoint(baseUrl: address, apiKey: apiKey),
-    );
-    final remote = await nas.shareVault(
-      localDeviceId: localId,
-      folderId: _syncthingFolderId,
-      expectedNasId: expectedNasId,
-    );
+    final remote = apiKey.isEmpty
+        ? (deviceId: expectedNasId!, addresses: <String>['dynamic'])
+        : await SyncthingClient(EngineEndpoint(baseUrl: address, apiKey: apiKey))
+            .shareVault(localDeviceId: localId, folderId: _syncthingFolderId,
+                expectedNasId: expectedNasId);
     ensure();
     await _syncthingFolder.create(recursive: true);
     ensure();
@@ -183,7 +196,7 @@ extension _AppSyncSyncthing on AppSyncService {
     if (key == null) throw StateError('请先完成设备配对');
     final config = enabled ? await _readSyncthing() : null;
     if (enabled) {
-      _requireSyncthing();
+      _requireSyncthing(hosted: config?.apiKey.isEmpty == true);
       if (config == null) throw StateError('请先保存 Syncthing 配置');
     }
     _syncthingEnabled = false;
@@ -214,8 +227,9 @@ extension _AppSyncSyncthing on AppSyncService {
   Future<void> _saveSyncthing({
     required String address,
     required String apiKey,
+    HostedInvite? invite,
   }) => _run(() async {
-    _requireSyncthing();
+    _requireSyncthing(hosted: invite != null);
     final normalized = SyncthingClient.parseAddress(address);
     final previous = await _readSyncthing();
     final key = apiKey.trim().isNotEmpty
@@ -223,35 +237,46 @@ extension _AppSyncSyncthing on AppSyncService {
         : previous?.address == normalized
         ? previous!.apiKey
         : '';
-    if (key.isEmpty ||
-        key.length > 4096 ||
-        !RegExp(r'^[!-~]+$').hasMatch(key)) {
+    if (invite == null && (key.isEmpty || key.length > 4096 ||
+        !RegExp(r'^[!-~]+$').hasMatch(key))) {
       throw StateError('首次配置或更换地址时请输入 API Key');
     }
     final storageKey = _syncthingKey!;
     try {
+      var expected = previous?.address == normalized ? previous?.deviceId : null;
+      if (invite != null) {
+        final signer = _local!.keys.signer;
+        if (invite.issuer.isNotEmpty && (!verifiedPeers.any((peer) =>
+            _controller!.authorize(relayVaultId!, peer.deviceId) != null &&
+            base64Encode(peer.signingPublicKey) == invite.issuer) ||
+            !await signer.verify(utf8.encode(['seqpoint-grant-v1', normalized,
+              _syncthingFolderId, base64Encode(signer.publicKey)].join('\n')),
+              base64Decode(invite.grant), base64Decode(invite.issuer)))) {
+          throw const FormatException('授权与当前配对设备不匹配');
+        }
+        await engineHost!.start();
+        final id = await invite.enroll(_syncthingFolderId,
+            (await engineHost!.localDeviceId())!, signer);
+        if (expected != null && expected != id) throw StateError('节点身份已改变');
+        expected = id;
+      }
       final deviceId = await _configureSyncthing(
-        normalized,
-        key,
-        expectedNasId: previous?.address == normalized
-            ? previous?.deviceId
-            : null,
-      );
+        normalized, invite == null ? key : '', expectedNasId: expected);
       final random = Random.secure();
       final revision = base64UrlEncode(
         List.generate(32, (_) => random.nextInt(256)),
       ).replaceAll('=', '');
       final configured = (
         address: normalized,
-        apiKey: key,
+        apiKey: invite == null ? key : '',
         deviceId: deviceId,
         revision: revision,
       );
       final record = jsonEncode({
         'revision': revision,
-        'v': 1,
+        'v': invite == null ? 1 : 2,
         'address': configured.address,
-        'api_key': configured.apiKey,
+        if (invite == null) 'api_key': configured.apiKey,
         'nas_id': configured.deviceId,
       });
       await secrets.write(storageKey, record);
@@ -297,17 +322,18 @@ extension _AppSyncSyncthing on AppSyncService {
     try {
       if (stored.length > 16384) throw const FormatException();
       final data = jsonDecode(stored) as Map;
-      if (data['v'] != 1) throw const FormatException();
+      final hosted = data['v'] == 2;
+      if (!hosted && data['v'] != 1) throw const FormatException();
       final address = SyncthingClient.parseAddress(data['address'] as String);
-      final apiKey = data['api_key'] as String;
+      final apiKey = hosted ? '' : data['api_key'] as String;
+      if (hosted && !address.startsWith('https://')) throw const FormatException();
       final deviceId = data['nas_id'] as String;
       final revision = data['revision'] as String;
       if (!RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(revision)) {
         throw const FormatException();
       }
-      if (apiKey.isEmpty ||
-          apiKey.length > 4096 ||
-          !RegExp(r'^[!-~]+$').hasMatch(apiKey) ||
+      if ((!hosted && (apiKey.isEmpty || apiKey.length > 4096 ||
+          !RegExp(r'^[!-~]+$').hasMatch(apiKey))) ||
           !RegExp(r'^[A-Z2-7]{7}(-[A-Z2-7]{7}){7}$').hasMatch(deviceId)) {
         throw const FormatException();
       }

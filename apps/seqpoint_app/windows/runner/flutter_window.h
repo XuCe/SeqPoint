@@ -2,11 +2,18 @@
 #define RUNNER_FLUTTER_WINDOW_H_
 
 #include <flutter/dart_project.h>
+#include <flutter/method_channel.h>
+#include <flutter/encodable_value.h>
 #include <flutter/flutter_view_controller.h>
 
 #include <memory>
 
 #include "win32_window.h"
+
+inline UINT GatewayInviteMessage() {
+  static const UINT value = RegisterWindowMessageW(L"SeqPoint.OpenGateway.38BCE0C0");
+  return value;
+}
 
 // A window that does nothing but host a Flutter view.
 class FlutterWindow : public Win32Window {
@@ -23,6 +30,9 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  bool pending_invite_ = false;
+  std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>> gateway_channel_;
+
   // The project to run.
   flutter::DartProject project_;
 

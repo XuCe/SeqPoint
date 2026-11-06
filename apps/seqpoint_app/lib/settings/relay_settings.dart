@@ -66,7 +66,7 @@ class _RelaySettingsState extends State<RelaySettings> {
       label: '云中转',
       children: [
         ListTile(
-          title: const Text('自建 HTTPS 节点'),
+          title: const Text('自建同步节点'),
           subtitle: Text(
             _message ??
                 widget.service.relayMessage ??
@@ -104,7 +104,7 @@ class _RelaySettingsState extends State<RelaySettings> {
                 autocorrect: false,
                 keyboardType: TextInputType.url,
                 decoration: const InputDecoration(
-                  labelText: '节点 HTTPS 地址',
+                  labelText: '节点地址（HTTP / HTTPS）',
                   hintText: 'https://sync.example.com',
                 ),
               ),

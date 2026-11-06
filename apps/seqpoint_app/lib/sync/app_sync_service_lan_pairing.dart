@@ -107,6 +107,7 @@ class LanPairingCoordinator extends ChangeNotifier {
         _expiry?.cancel();
         _expiry = Timer(const Duration(seconds: 1), () => unawaited(_retire()));
         _changed('已连接');
+        unawaited(_service._resumeHostedEnrollment());
         return {'ok': true};
       case 'saved':
         return _saved(message);
@@ -205,6 +206,25 @@ class LanPairingCoordinator extends ChangeNotifier {
     };
   }
 
+  Future<String?> _reconnectGrant() async {
+    if (!_reconnect) return null;
+    final member = _service._authorize(_service.relayVaultId!, _peer.deviceId);
+    return member == null ? null : _service.hostedGrant(member);
+  }
+
+  Future<void> _rememberGrant(Object? link) async {
+    if (!_reconnect || link is! String || await _service.gatewayOrigin() != null ||
+        await _service._readSyncthing() != null) {
+      return;
+    }
+    final invite = HostedInvite.parse(link);
+    if (!invite.gateway && !_service.syncthingSupported) return;
+    if (invite.issuer != base64Encode(_peer.signingPublicKey)) {
+      throw const FormatException('节点邀请身份不匹配');
+    }
+    await _service.secrets.write('${_service._syncthingKey}.hostedPending', link);
+  }
+
   Future<Map<String, Object?>> _saved(Map<String, Object?> message) async {
     if (_stage != 3) throw StateError('配对尚未确认');
     final peerPort = message['port'];
@@ -212,7 +232,7 @@ class LanPairingCoordinator extends ChangeNotifier {
       throw const FormatException('监听端口错误');
     }
     if (!_host && !_reconnect) {
-      await _service.finishGuest(_session!, _map(message['grant']));
+      await _service._finishGuest(_session!, _map(message['grant']));
     }
     _requireOpen();
     final localPort = await _service.startServer();
@@ -224,7 +244,8 @@ class LanPairingCoordinator extends ChangeNotifier {
       tlsFingerprint: _peer.tlsFingerprint,
     );
     _stage = 4;
-    return {'port': localPort};
+    await _rememberGrant(message['hosted']);
+    return {'port': localPort, if (_reconnect) 'hosted': await _reconnectGrant()};
   }
 
   Future<void> connect(LanPairingLink invitation) => _begin(() async {
@@ -360,12 +381,14 @@ class LanPairingCoordinator extends ChangeNotifier {
       if (_host) {
         grant = await _service.finishHost(_session!);
       } else {
-        await _service.finishGuest(_session!, _map(reply['grant']));
+        await _service._finishGuest(_session!, _map(reply['grant']));
       }
     }
     _requireOpen();
     final localPort = await _service.startServer();
-    final saved = await _post('saved', {'grant': grant, 'port': localPort});
+    final saved = await _post('saved', {'grant': grant, 'port': localPort,
+      if (_reconnect) 'hosted': await _reconnectGrant()});
+    await _rememberGrant(saved['hosted']);
     final port = saved['port'];
     if (port is! int || port < 1 || port > 65535) {
       throw const FormatException('对端监听端口无效');
@@ -385,6 +408,7 @@ class LanPairingCoordinator extends ChangeNotifier {
     _client?.close();
     _client = null;
     _changed('已连接');
+    unawaited(_service._resumeHostedEnrollment());
   }
 
   Future<void> _retire() async {

@@ -12,6 +12,8 @@ import 'package:seqpoint_platform/seqpoint_platform.dart';
 
 class _Secrets extends Fake implements SecretStore {
   final values = <String, String>{};
+  @override
+  Future<void> delete(String key) async { values.remove(key); }
   int reads = 0, writes = 0, membershipWrites = 0;
   bool failMembership = false, corruptReadback = false, _badRead = false;
   Completer<void>? gate;
@@ -108,6 +110,63 @@ void main() {
     return reopened;
   }
 
+  final gatewayLink = Platform.environment['SEQPOINT_TEST_GATEWAY_LINK'];
+  test('gateway invitation enrolls without Syncthing and delivers an existing offline note', () async {
+    final link = gatewayLink!;
+    final expected = Uri.parse(link);
+    final pem = await File(Platform.environment['SEQPOINT_TEST_GATEWAY_PEM']!).readAsString();
+    final original = HttpOverrides.current;
+    HttpOverrides.global = _TestGatewayTrust(expected, pem.trim());
+    addTearDown(() => HttpOverrides.global = original);
+    SharedPreferences.setMockInitialValues({});
+    final a = await node(3), b = await node(4);
+    ItemRepository(a.db).insert(Item(id:'before-invite',title:'首台设备的已有事项',
+      status:ItemStatus.todo,priority:Priority.p4,source:ItemSource.manual,
+      createdAt:DateTime.now().toUtc(),updatedAt:DateTime.now().toUtc()));
+    expect(a.service.syncthingSupported,isFalse);
+    await expectLater(a.service.enableHosted('${expected.origin}/invite#gw.${'0' * 64}'), throwsFormatException);
+    expect(a.service.hasVault,isFalse);
+    await a.service.enableHosted(link);
+    expect(await a.service.gatewayOrigin(),expected.origin);
+    await a.service.syncRelay();
+    await b.service.prepare('second');
+    final pair=await _pair(a.service,b.service);
+    await b.service.finishGuest(pair.guest,await a.service.finishHost(pair.host));
+    expect(await b.service.gatewayOrigin(),expected.origin);
+    await a.service.syncRelay();
+    final local = await SyncIdentityStore(a.secrets).loadOrCreate('first');
+    final writer = RelayTransport(endpoint:expected.origin,vaultPublicId:a.service.relayVaultId!,keys:local.keys);
+    addTearDown(writer.close);
+    final used = (await writer.usedBytes() as Ok<int>).value;
+    final block = List<int>.filled((1<<20)-used,7);
+    expect(await writer.put('blobs/${local.keys.deviceId}/${lanSha256(block)}.bin',block),isA<Ok<void>>());
+    Future<void> quota(int mib) async {
+      final http=HttpClient();
+      try {
+        final request=await http.postUrl(Uri.parse(Platform.environment['SEQPOINT_TEST_GATEWAY_ADMIN']!));
+        final password=Platform.environment['SEQPOINT_TEST_GATEWAY_PASSWORD']!;
+        request.headers.set('Authorization','Basic ${base64Encode(utf8.encode('admin:$password'))}');
+        request.headers.contentType=ContentType('application','x-www-form-urlencoded');
+        request.write('action=update&vault=${a.service.relayVaultId}&quota=$mib');
+        final response=await request.close();await response.drain<void>();expect(response.statusCode,200);
+      }finally{http.close(force:true);}
+    }
+    await quota(1);
+    ItemRepository(b.db).insert(Item(id:'guest-offline',title:'第二台离线编辑',status:ItemStatus.todo,
+      priority:Priority.p4,source:ItemSource.manual,createdAt:DateTime.now().toUtc(),updatedAt:DateTime.now().toUtc()));
+    await a.service.pause();
+    await b.service.syncRelay();
+    expect(ItemRepository(b.db).byId('before-invite')?.title,'首台设备的已有事项');
+    expect(b.service.relayMessage,contains('等待上传'));
+    await quota(1024);
+    await b.service.syncRelay();
+    await a.service.syncRelay();
+    expect(ItemRepository(a.db).byId('guest-offline')?.title,'第二台离线编辑');
+    await a.service.revokePeer(a.service.verifiedPeers.single,expectedVersion: a.service.membershipVersion!);
+    await a.service.syncRelay();
+    await expectLater(b.service.syncRelay(),throwsStateError);
+  },skip:gatewayLink==null?'requires disposable HTTPS gateway':false);
+
   test('relay address persists per vault and invalid origins are rejected', () async {
     SharedPreferences.setMockInitialValues({});
     final a = await node(1), b = await node(2);
@@ -119,11 +178,14 @@ void main() {
     expect(await b.service.loadRelayEndpoint(), '');
     await a.service.prepare('A');
     expect(await a.service.loadRelayEndpoint(), 'https://sync.example.com');
-    await expectLater(a.service.saveRelayEndpoint('http://sync.example.com'), throwsArgumentError);
+    await expectLater(a.service.saveRelayEndpoint('ftp://sync.example.com'), throwsArgumentError);
     expect(await a.service.loadRelayEndpoint(), 'https://sync.example.com');
+    await a.service.saveRelayEndpoint('http://sync.example.com');
+    await a.service.prepare('A');
+    expect(await a.service.loadRelayEndpoint(), 'http://sync.example.com');
     await a.service.saveRelayEndpoint('');
     await expectLater(a.service.syncRelay(), throwsStateError);
-    expect(a.service.relayMessage, contains('请先保存 HTTPS'));
+    expect(a.service.relayMessage, contains('请先保存节点地址'));
   });
 
   test('relay configuration exports current paired public keys only', () async {
@@ -412,4 +474,14 @@ void main() {
     expect(h.db.raw.select('SELECT * FROM sync_operations WHERE publication_seq IS NULL'), isNotEmpty);
     expect(h.db.raw.select('SELECT * FROM sync_publications WHERE key_epoch=2'), isEmpty);
   });
+}
+
+class _TestGatewayTrust extends HttpOverrides {
+  _TestGatewayTrust(this.origin,this.pem);
+  final Uri origin;
+  final String pem;
+  @override
+  HttpClient createHttpClient(SecurityContext? context) => super.createHttpClient(context)
+    ..badCertificateCallback = (cert, host, port) =>
+        host == origin.host && port == origin.port && cert.pem.trim() == pem;
 }

@@ -12,6 +12,8 @@ import 'package:shared_preferences_platform_interface/shared_preferences_platfor
 
 class _Secrets extends Fake implements SecretStore {
   final values = <String, String>{};
+  @override
+  Future<void> delete(String key) async { values.remove(key); }
   int syncthingReads = 0;
   bool failNasWrite = false, failReadAfterWrite = false, failNextRead = false;
   Completer<void>? writeStarted, releaseWrite;
@@ -38,6 +40,17 @@ class _Secrets extends Fake implements SecretStore {
   }
 }
 
+// Trust only the disposable local fixture certificate at its exact origin.
+class _FixtureTLS extends HttpOverrides {
+  _FixtureTLS(this.origin, this.pem);
+  final Uri origin;
+  final String pem;
+  @override
+  HttpClient createHttpClient(SecurityContext? context) => super.createHttpClient(context)
+      ..badCertificateCallback = (cert, host, port) =>
+          host == origin.host && port == origin.port && cert.pem.trim() == pem.trim();
+}
+
 class _Preferences extends InMemorySharedPreferencesStore {
   _Preferences() : super.empty();
   bool failCommit = false, failReload = false;
@@ -59,6 +72,63 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     SharedPreferencesStorePlatform.instance = _Preferences();
   });
+  final hosted = Platform.environment['SEQPOINT_TEST_HOSTED_LINK'];
+  test('hosted invitation enrolls fresh app and paired peer without a NAS key', () async {
+    final ca = Platform.environment['SEQPOINT_TEST_HOSTED_CA'];
+    final previous = HttpOverrides.current;
+    if (ca != null) {
+      HttpOverrides.global = _FixtureTLS(Uri.parse(hosted!), await File(ca).readAsString());
+      addTearDown(() => HttpOverrides.global = previous);
+    }
+    final root = await Directory.systemTemp.createTemp('seqpoint-hosted-');
+    final nodes = <AppSyncService>[];
+    try {
+      for (final name in ['first', 'second']) {
+        final secrets = _Secrets();
+        nodes.add(AppSyncService(db: SeqDatabase.inMemory()..migrate(),
+            root: Directory('${root.path}/$name/sync-vault'), secrets: secrets,
+            engineHost: SyncthingEngineHost(home: Directory('${root.path}/$name/engine'),
+                secrets: secrets, executable: executable)));
+      }
+      final a = nodes.first, b = nodes.last;
+      await a.enableHosted(hosted!);
+      await b.prepare('second');
+      await a.lanPairing.listen(address: InternetAddress.loopbackIPv4);
+      await b.lanPairing.connect(a.lanPairing.link!);
+      for (var i=0; i<200 && !b.syncthingEnabled; i++) {
+        await Future<void>.delayed(const Duration(milliseconds:100));
+      }
+      expect(b.syncthingEnabled, isTrue, reason: b.syncthingMessage);
+      expect(await b.hostedOrigin(), await a.hostedOrigin());
+      for (final node in nodes) {
+        await node.setLanEnabled(false);
+        final local = SyncthingClient(await node.engineHost!.start());
+        final own = await node.engineHost!.localDeviceId();
+        final peer = (await local.request('GET','config/devices') as List)
+            .singleWhere((d)=>d['deviceID'] != own);
+        await local.request('PATCH','config/devices/${peer['deviceID']}',
+          {'addresses':[Platform.environment['SEQPOINT_TEST_HOSTED_TCP']!]});
+      }
+      // Measure data propagation after both fixture peers have completed their
+      // initial Syncthing dial. Discovery and reconnect backoff are independent.
+      for (final node in nodes) {
+        final api = SyncthingClient(await node.engineHost!.start());
+        final deadline = DateTime.now().add(const Duration(seconds: 90));
+        while (true) {
+          final status = await api.request('GET', 'system/connections') as Map;
+          final peers = (status['connections'] as Map).values;
+          if (peers.any((peer) => peer['connected'] == true)) break;
+          if (DateTime.now().isAfter(deadline)) fail('Hosted node connection timed out');
+          await Future<void>.delayed(const Duration(milliseconds: 250));
+        }
+      }
+      await _roundTrip(a,b);
+    } finally {
+      for (final node in nodes) {await node.stop(); node.dispose(); node.db.close();}
+      await root.delete(recursive:true);
+    }
+  }, skip: hosted==null || executable==null ? 'Set test hosted invitation and engine' : false,
+     timeout:const Timeout(Duration(minutes:5)));
   test(
     'paired apps exchange through NAS with LAN disabled and respect pause',
     () async {
@@ -265,7 +335,7 @@ Future<void> _waitNote(AppSyncService service, String content) async {
     }
     await Future<void>.delayed(const Duration(milliseconds: 200));
   }
-  fail('NAS note not received; ${service.error}; ${service.syncthingMessage}');
+  fail('NAS note $content not received; ${service.error}; ${service.syncthingMessage}');
 }
 
 Future<void> _pauseDuringSave(

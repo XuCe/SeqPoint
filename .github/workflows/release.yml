@@ -88,6 +88,22 @@ jobs:
       - name: 应用层分析与测试
         run: cd apps/seqpoint_app && flutter analyze && flutter test
 
+      - name: 打包并验收群晖同步网关
+        run: |
+          bash node/gateway-deploy/package.sh "$RUNNER_TEMP/gateway"
+          docker load -i "$RUNNER_TEMP/gateway/seqpoint-gateway-amd64.tar"
+          python3 scripts/sync_acceptance/verify_gateway.py --http
+          python3 scripts/sync_acceptance/verify_gateway.py
+          cd "$RUNNER_TEMP/gateway"
+          zip -q "$GITHUB_WORKSPACE/seqpoint-${RELEASE_LABEL}-gateway-dsm.zip" \
+            README.md compose.yaml seqpoint-gateway-amd64.tar seqpoint-gateway-arm64.tar
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gateway
+          path: seqpoint-*-gateway-dsm.zip
+          retention-days: 7
+
   # ── Android：只出 AArch64 与 ARMv7 两个 ABI ──
   android:
     name: Android (arm64 + armv7)
@@ -105,16 +121,9 @@ jobs:
         with:
           cache: true
 
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-
       - uses: ./.github/actions/syncthing
         with:
           platform: android
-      - run: dart pub get
 
       - name: 注入发布签名
         # 正式发布必须签名；预演允许未配置签名时编译验证。
@@ -198,15 +207,9 @@ jobs:
       - uses: shorebirdtech/setup-shorebird@v1
         with:
           cache: true
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
       - uses: ./.github/actions/syncthing
         with:
           platform: ios
-      - run: dart pub get
       - name: 编译未签名归档（不上传基线）
         working-directory: apps/seqpoint_app
         env:
@@ -238,16 +241,9 @@ jobs:
         with:
           cache: true
 
-      - uses: subosito/flutter-action@v2
-        with:
-          flutter-version: ${{ env.FLUTTER_VERSION }}
-          channel: stable
-          cache: true
-
       - uses: ./.github/actions/syncthing
         with:
           platform: macos
-      - run: dart pub get
 
       - name: 准备 macOS 自签名身份
         env:
@@ -521,12 +517,13 @@ jobs:
           body: |
             ## 本版本
 
-            - Windows 弹出便签隐藏系统标题栏，点击便签显示工具，失焦后收起。可从顶部拖动、创建和关闭便签。
-            - 照片和录音入口收进底部工具栏，附件浏览与转写集中到同一入口。
-            - 减少便签开窗和后台提醒的重复数据库读写，加快大便签墙首屏、侧栏计数和搜索。
+            - 新增序点同步网关，群晖可通过单个 Docker 容器部署。首台设备在「设置 → 同步 → 启用云同步」粘贴邀请即可开通，其他设备配对后加入同一资料库。
+            - 网关支持 HTTP 和 HTTPS，提供邀请管理、空间配额、暂停及设备撤销，客户端支持错时同步笔记和附件。
+            - 修复 HTTP 管理页生成邀请时的来源校验错误，并为 HTTP 邀请页面提供手动复制入口。
+            - 支持浏览器唤起客户端处理邀请，完善离线配对、空间不足和历史同步状态处理。
 
             手机需保持应用在前台同步。使用步骤见 [设备同步说明](https://github.com/XuCe/SeqPoint/blob/${{ github.ref_name }}/docs/device-sync.md)。
-            v0.1.0 不含本次所需的原生引擎、权限与完整更新器，需先完整安装本版本；不能仅靠热更新补丁升级。
+            网关功能需要完整安装本版本。部署步骤见 [群晖网关指南](https://github.com/XuCe/SeqPoint/blob/${{ github.ref_name }}/node/gateway-deploy/README.md)。HTTP 会明文传输邀请和连接凭据，适合可信内网。
 
             ## 下载
 
@@ -538,6 +535,7 @@ jobs:
             | Windows 64 位（推荐，可自动更新） | `*-windows-x64-setup.exe` |
             | Windows 便携版 | `*-windows-x64.zip` |
             | Linux ARM64 | `*-linux-arm64.tar.gz` |
+            | 群晖同步网关（AMD64 / ARM64 镜像） | `*-gateway-dsm.zip` |
 
             `SHA256SUMS.txt` 用于校验下载完整性。`*-appcast-*.xml` 供应用原生更新器使用。
             完整更新会在应用内下载并启动安装；Windows 建议先使用安装器安装。

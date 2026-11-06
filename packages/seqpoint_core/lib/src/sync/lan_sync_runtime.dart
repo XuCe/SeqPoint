@@ -42,6 +42,7 @@ final class LanSyncMembership {
   LanSyncMembership({
     required this.version,
     required this.policy,
+    this.checkpointMemberHistory,
     required Map<int, List<int>> epochKeys,
   }) : epochKeys = Map.unmodifiable(
          epochKeys.map(
@@ -50,6 +51,7 @@ final class LanSyncMembership {
        );
   final Object version;
   final MembershipSyncPolicy policy;
+  final MemberKeys? Function(String)? checkpointMemberHistory;
   final Map<int, List<int>> epochKeys;
 }
 
@@ -214,7 +216,7 @@ class LanSyncRuntime {
     final membership=scope.membership.policy.membership;
     return {
       for(final id in {...membership.state.members.keys,...membership.state.revokedIds})
-        if(membership.knownMemberKeys(id) case final member?) id:member.signingPublicKey,
+        if((membership.knownMemberKeys(id) ?? scope.membership.checkpointMemberHistory?.call(id)) case final member?) id:member.signingPublicKey,
     };
   }
   Map<String,List<int>> _contentFiles=const {};
@@ -307,10 +309,10 @@ class LanSyncRuntime {
     }
   }
 
-  Future<Result<SyncOutcome>> syncRelay(RelayTransport client) async {
+  Future<Result<SyncOutcome>> syncRelay(RelayTransport client, {bool downloadOnly = false}) async {
     _relayClients.add(client);
     try {
-      return Ok(await _enqueue(() => _syncRelay(client)));
+      return Ok(await _enqueue(() => _syncRelay(client, downloadOnly: downloadOnly)));
     } catch (error) {
       return Err('relay_sync_failed', message: '$error', cause: error);
     } finally {
@@ -319,7 +321,7 @@ class LanSyncRuntime {
     }
   }
 
-  Future<SyncOutcome> _syncRelay(RelayTransport client) async {
+  Future<SyncOutcome> _syncRelay(RelayTransport client, {bool downloadOnly = false}) async {
     final initial = _capture(requireEpochKey: false);
     if (client.selfDeviceId != localDevice.deviceId ||
         client.vaultPublicId !=
@@ -328,7 +330,7 @@ class LanSyncRuntime {
     }
     final ownPath = 'members/${localDevice.deviceId}.json';
     final ownControl = controlFiles()[ownPath];
-    if (ownControl != null) {
+    if (!downloadOnly && ownControl != null) {
       _value(await client.putChanged(ownPath, ownControl));
       _ensure(initial, requireEpochKey: false);
     }
@@ -354,20 +356,22 @@ class LanSyncRuntime {
     final state=scope.membership.policy.membership.state;
     final content=SyncContentTransfer(_contentCodec(scope),client,SyncTransferBudget());
     final media=SyncMedia(db,content,Directory('${root.parent.path}/attachments'));
-    await media.push();
     final before = _pendingPublicationCount();
-    if (db.raw.select(
-      'SELECT 1 FROM sync_publications WHERE key_epoch<? AND published=0 LIMIT 1',
-      [scope.membership.policy.membership.state.epoch],
-    ).isNotEmpty) {
-      throw StateError('Old unpublished epoch requires recovery');
-    }
-    while (await _publisher!.publishNext(
-          store: session.store,
-          keyEpoch: scope.membership.policy.membership.state.epoch,
-        ) !=
-        null) {
-      _ensure(scope);
+    if (!downloadOnly) {
+      await media.push();
+      if (db.raw.select(
+        'SELECT 1 FROM sync_publications WHERE key_epoch<? AND published=0 LIMIT 1',
+        [scope.membership.policy.membership.state.epoch],
+      ).isNotEmpty) {
+        throw StateError('Old unpublished epoch requires recovery');
+      }
+      while (await _publisher!.publishNext(
+            store: session.store,
+            keyEpoch: scope.membership.policy.membership.state.epoch,
+          ) !=
+          null) {
+        _ensure(scope);
+      }
     }
     final checkpoints=SyncCheckpoints(db,SyncContentTransfer(content.codec,client,
       SyncTransferBudget(remaining:16*1024*1024)),
@@ -375,11 +379,13 @@ class LanSyncRuntime {
     for(final author in state.members.keys) {
       await checkpoints.pull(author);_ensure(scope);
     }
-    await checkpoints.rewrapStored();
-    final head=await _publisher!.sealHead(store:session.store);
-    final checkpoint=await checkpoints.prepare(head);
-    if(checkpoint==null || await checkpoints.publish(checkpoint,head:head)) {
-      await _catalog!.refresh(codec:session.codec);
+    if (!downloadOnly) {
+      await checkpoints.rewrapStored();
+      final head=await _publisher!.sealHead(store:session.store);
+      final checkpoint=await checkpoints.prepare(head);
+      if(checkpoint==null || await checkpoints.publish(checkpoint,head:head)) {
+        await _catalog!.refresh(codec:session.codec);
+      }
     }
     _ensure(scope);
     var pulled = 0;
@@ -398,10 +404,12 @@ class LanSyncRuntime {
       pulled += outcome.pulled;
       waiting.addAll(outcome.waitingPeers);
     }
-    for (final entry in _ackFiles.entries) {
-      _ensure(scope);
-      _value(await client.putChanged(entry.key, entry.value));
-      _ensure(scope);
+    if (!downloadOnly) {
+      for (final entry in _ackFiles.entries) {
+        _ensure(scope);
+        _value(await client.putChanged(entry.key, entry.value));
+        _ensure(scope);
+      }
     }
     await media.pull();
     _contentFiles=await syncContentCatalog(db,content.codec);

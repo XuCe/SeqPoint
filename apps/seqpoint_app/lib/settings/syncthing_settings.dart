@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'hosted_setup.dart';
 
 import '../sync/app_sync_service.dart';
 import 'settings_scaffold.dart';
@@ -19,17 +21,32 @@ class SyncthingSettings extends StatefulWidget {
 class _SyncthingSettingsState extends State<SyncthingSettings> {
   final _address = TextEditingController(), _key = TextEditingController();
   bool _loading = true, _working = false;
-  String? _error;
+  String? _error, _hosted, _gateway;
+  int? _relayRevision;
+  bool? _seenEnabled;
   @override
   void initState() {
     super.initState();
     _load();
   }
 
+  @override
+  void didUpdateWidget(covariant SyncthingSettings oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (_relayRevision != widget.service.relaySettingsRevision || _seenEnabled != widget.service.syncthingEnabled) _load();
+  }
+
   Future<void> _load() async {
+    _relayRevision = widget.service.relaySettingsRevision;
+    _seenEnabled = widget.service.syncthingEnabled;
     try {
       final value = await widget.service.loadSyncthingAddress();
-      if (mounted) _address.text = value;
+      final gateway = await widget.service.gatewayOrigin();
+      final hosted = await widget.service.hostedOrigin();
+      if (mounted) {
+        _hosted = hosted; _gateway = gateway;
+        _address.text = hosted == null ? value : '';
+      }
     } catch (_) {
       _error = '安全配置读取失败，请重新填写';
     } finally {
@@ -53,7 +70,7 @@ class _SyncthingSettingsState extends State<SyncthingSettings> {
     try {
       await action();
     } catch (_) {
-      if (mounted) setState(() => _error = '操作未完成，请检查配对、内网或 VPN 连接、Syncthing 管理地址和 API Key');
+      if (mounted) setState(() => _error = _gateway != null ? widget.service.relayMessage ?? '请检查网关连接' : '操作未完成，请检查节点连接和授权');
     } finally {
       if (mounted) setState(() => _working = false);
     }
@@ -130,17 +147,43 @@ class _SyncthingSettingsState extends State<SyncthingSettings> {
         _loading ||
         _working;
     return SettingsGroup(
-      label: 'Syncthing 跨网同步',
+      label: '跨网同步',
       children: [
         ListTile(
-          title: const Text('连接 Syncthing 节点'),
-          subtitle: Text(
-            _error ??
-                (service.syncthingMessage.isNotEmpty
-                    ? service.syncthingMessage
-                    : '先完成序点设备配对，再连接常在线的 Syncthing 节点；客户端无需同时在线。'),
-          ),
+          title: Text(_gateway != null ? '序点同步网关' : _hosted == null ? '启用云同步' : '托管云节点'),
+          subtitle: Text(_error ?? (_gateway ?? _hosted ?? '使用运营方邀请开通，配对后自动加入同一节点')),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: widget.disabled || _loading ? null : () async {
+            final pending = await service.pendingHostedInvite();
+            if (!context.mounted) return;
+            await Navigator.of(context).push<void>(MaterialPageRoute(builder: (_) =>
+              HostedSetup(service: service, link: pending ?? '')));
+            if (mounted) await _load();
+          },
         ),
+        if (service.syncthingMessage.isNotEmpty) ListTile(subtitle: Text(service.syncthingMessage)),
+        if (_gateway != null || (_hosted != null && service.syncthingEnabled))
+          for (final peer in service.verifiedPeers)
+            ListTile(title: const Text('复制此设备的加入链接'), subtitle: Text(peer.deviceId),
+              onTap: widget.disabled || _working ? null : () => _run(() async {
+                final link = await service.hostedGrant(peer);
+                if (link != null) await Clipboard.setData(ClipboardData(text: link));
+              })),
+        if (_gateway != null) ListTile(
+          title: const Text('网关同步'), subtitle: Text(service.relayMessage ?? '已开通，等待上传到网关'),
+          trailing: TextButton(onPressed: widget.disabled || _working ? null :
+              () => _run(() async {await service.syncRelay();}), child: const Text('同步一次'))),
+        SwitchListTile(
+          value: service.mediaSyncEnabled,
+          onChanged: widget.disabled || _working || !service.canSync
+              ? null
+              : (value) => _run(() => service.setMediaSyncEnabled(value)),
+          title: const Text('同步附件和录音'),
+          subtitle: const Text('原文件加密传输；移动网络也会同步'),
+        ),
+        if (_hosted != null) OutlinedButton(onPressed: disabled || !service.syncthingEnabled
+            ? null : () => _run(() async {await service.syncSyncthing();}), child: const Text('同步一次')),
+        ExpansionTile(title: const Text('自建 Syncthing 节点'), children: [
         SwitchListTile(
           value: service.syncthingEnabled,
           onChanged: disabled
@@ -148,14 +191,7 @@ class _SyncthingSettingsState extends State<SyncthingSettings> {
               : (value) => _run(() => service.setSyncthingEnabled(value)),
           title: const Text('开启跨网同步'),
         ),
-        SwitchListTile(
-          value: service.mediaSyncEnabled,
-          onChanged: disabled
-              ? null
-              : (value) => _run(() => service.setMediaSyncEnabled(value)),
-          title: const Text('同步附件和录音'),
-          subtitle: const Text('原文件加密传输；移动网络也会同步'),
-        ),
+
         Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -179,6 +215,7 @@ class _SyncthingSettingsState extends State<SyncthingSettings> {
           ),
         ),
         const SyncthingSetupGuide(),
+        ]),
       ],
     );
   }

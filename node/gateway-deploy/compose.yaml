@@ -1,0 +1,21 @@
+services:
+  gateway:
+    image: seqpoint-gateway:1
+    command: ["-gateway"]
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    environment:
+      GATEWAY_ORIGIN: "http://192.168.2.191:8385"  # 填用户可访问的 HTTP 或 HTTPS 地址
+      GATEWAY_ADMIN_PASSWORD: ""  # 填写至少 8 字节（英文或数字为 8 位）的管理密码
+      GATEWAY_ADMIN_LISTEN: ":8081"
+      GATEWAY_ANDROID_SHA256: ${GATEWAY_ANDROID_SHA256:-}
+      GATEWAY_APPLE_TEAM: ${GATEWAY_APPLE_TEAM:-}
+    ports:
+      - "192.168.2.191:8385:8080"
+      - "192.168.2.191:8386:8081"  # 仅绑定 NAS 的内网 IP
+    volumes:
+      - gateway_data:/data
+volumes:
+  gateway_data:

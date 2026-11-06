@@ -67,6 +67,11 @@ final class SyncMembershipController {
     return result;
   }
 
+  // The network policy contains current members only. A durable checkpoint
+  // additionally needs the original signer's key after that member is revoked.
+  MemberKeys? Function(String)? get checkpointMemberHistory =>
+      _committed?.membership.knownMemberKeys;
+
   MembershipSyncPolicy? get policy => _state != SyncMembershipControllerState.ready ||
       _committed == null || _committed!.membership.isConflicted ? null :
       MembershipSyncPolicy(membership: MembershipReducer(trustedAnchor: _committed!.state),

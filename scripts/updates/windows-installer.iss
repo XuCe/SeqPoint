@@ -28,6 +28,11 @@ DisableProgramGroupPage=yes
 [Files]
 Source: "{#SourceDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
+[Registry]
+Root: HKCU; Subkey: "Software\Classes\seqpoint-gateway"; ValueType: string; ValueData: "URL:SeqPoint Gateway"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\seqpoint-gateway"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\seqpoint-gateway\shell\open\command"; ValueType: string; ValueData: """{app}\seqpoint_app.exe"" --gateway-invite"
+
 [Icons]
 Name: "{autoprograms}\序点 SeqPoint"; Filename: "{app}\seqpoint_app.exe"
 Name: "{autodesktop}\序点 SeqPoint"; Filename: "{app}\seqpoint_app.exe"

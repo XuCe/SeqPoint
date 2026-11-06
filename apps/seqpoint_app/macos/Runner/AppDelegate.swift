@@ -5,6 +5,31 @@ import FlutterMacOS
 class AppDelegate: FlutterAppDelegate {
   private var terminationPending = false
 
+  private var pendingGatewayInvite = false
+  private var gatewayChannel: FlutterMethodChannel?
+
+  func attachGateway(to controller: FlutterViewController) {
+    let channel = FlutterMethodChannel(name: "seqpoint/gateway", binaryMessenger: controller.engine.binaryMessenger)
+    gatewayChannel = channel
+    channel.setMethodCallHandler { [weak self] call, result in
+      guard call.method == "take" else { result(FlutterMethodNotImplemented); return }
+      let pending = self?.pendingGatewayInvite ?? false
+      self?.pendingGatewayInvite = false
+      result(pending)
+    }
+  }
+
+  override func application(_ application: NSApplication, open urls: [URL]) {
+    guard urls.contains(where: { $0.absoluteString == "seqpoint-gateway://open/paste" }) else {
+      super.application(application, open: urls)
+      return
+    }
+    pendingGatewayInvite = true
+    mainFlutterWindow?.makeKeyAndOrderFront(nil)
+    application.activate(ignoringOtherApps: true)
+    gatewayChannel?.invokeMethod("open", arguments: nil)
+  }
+
   override func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
     if terminationPending { return .terminateLater }
     guard let controller = mainFlutterWindow?.contentViewController as? FlutterViewController else {

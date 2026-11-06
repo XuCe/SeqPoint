@@ -1,6 +1,7 @@
 #include "flutter_window.h"
 
 #include <optional>
+#include <flutter/standard_method_codec.h>
 
 #include "flutter/generated_plugin_registrant.h"
 #include "desktop_multi_window/desktop_multi_window_plugin.h"
@@ -31,6 +32,15 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
+  pending_invite_ = project_.dart_entrypoint_arguments() == std::vector<std::string>{"--gateway-invite"};
+  gateway_channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
+      flutter_controller_->engine()->messenger(), "seqpoint/gateway",
+      &flutter::StandardMethodCodec::GetInstance());
+  gateway_channel_->SetMethodCallHandler([this](const auto& call, auto result) {
+    if (call.method_name() != "take") { result->NotImplemented(); return; }
+    result->Success(flutter::EncodableValue(pending_invite_));
+    pending_invite_ = false;
+  });
   DesktopMultiWindowSetWindowCreatedCallback([](void* controller) {
     auto* view_controller =
         reinterpret_cast<flutter::FlutterViewController*>(controller);
@@ -64,6 +74,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  gateway_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -75,6 +86,13 @@ LRESULT
 FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
+  if (message == GatewayInviteMessage() && gateway_channel_) {
+    pending_invite_ = true;
+    ShowWindow(hwnd, SW_RESTORE);
+    SetForegroundWindow(hwnd);
+    gateway_channel_->InvokeMethod("open", nullptr);
+    return 0;
+  }
   // Give Flutter, including plugins, an opportunity to handle window messages.
   if (flutter_controller_) {
     std::optional<LRESULT> result =

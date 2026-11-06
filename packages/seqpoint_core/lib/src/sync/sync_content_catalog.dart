@@ -25,7 +25,7 @@ Future<PublishedFileView> syncContentCatalog(SeqDatabase db,SyncManifestCodec co
       });
     }
   }
-  for(final row in db.raw.select('SELECT manifest_bytes,manifest_hash FROM sync_checkpoints')) {
+  for(final row in db.raw.select('SELECT manifest_bytes,manifest_hash FROM sync_checkpoints WHERE key_epoch=?',[codec.epoch])) {
     final manifest=await codec.open(row['manifest_bytes'] as List<int>,expectedHash:row['manifest_hash'] as String);
     if(manifest.epoch==codec.epoch && manifest.membershipHash==codec.membershipHash) add(manifest,media:false);
   }

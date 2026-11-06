@@ -1,1 +1,4 @@
 #include "Generated.xcconfig"
+
+SEQPOINT_ENTITLEMENTS = Runner/Runner.entitlements
+#include? "Hosted.local.xcconfig"

@@ -1,7 +1,11 @@
+import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import '../settings/hosted_setup.dart';
+import '../sync/hosted_invite.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:seqpoint_core/seqpoint_core.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
@@ -101,7 +105,10 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
       });
       unawaited(_readLaunchNotification(notifications));
     }
-    if (widget._stickyNoteId == null) _mountSync(boot, directory);
+    if (widget._stickyNoteId == null) {
+      _mountSync(boot, directory);
+      if (_desktopInvites) WidgetsBinding.instance.addPostFrameCallback((_) => _takeDesktopInvite());
+    }
     return boot;
   });
 
@@ -321,10 +328,28 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
     }
   }
 
+  static const _gatewayChannel = MethodChannel('seqpoint/gateway');
+  bool get _desktopInvites => widget._stickyNoteId == null && (Platform.isMacOS || Platform.isWindows);
+  Future<void> _takeDesktopInvite() async {
+    final nav = _navigator.currentState;
+    if (!mounted || _restoring || _quitting || nav == null || _sync == null) return;
+    try {
+      final pending = await _gatewayChannel.invokeMethod<bool>('take');
+      if (pending == true && nav.mounted) {
+        unawaited(nav.push<void>(MaterialPageRoute(builder: (_) => const HostedSetup())));
+      }
+    } on MissingPluginException { return; }
+  }
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    if (_desktopInvites) {
+      _gatewayChannel.setMethodCallHandler((call) async {
+        if (call.method == 'open') await _takeDesktopInvite();
+      });
+    }
   }
 
   @override
@@ -342,6 +367,7 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
 
   @override
   void dispose() {
+    if (_desktopInvites) _gatewayChannel.setMethodCallHandler(null);
     WidgetsBinding.instance.removeObserver(this);
     final boot = _currentBoot, restoring = _restoring;
     final draining = _drainSync();
@@ -367,7 +393,12 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       theme: seqLightTheme(),
       darkTheme: seqDarkTheme(),
-      home: _home(),
+      routes: {'/': (_) => _home()},
+      onGenerateInitialRoutes: (name) => [
+        MaterialPageRoute<void>(settings: const RouteSettings(name: '/'), builder: (_) => _home()),
+        if (_hostedRoute(RouteSettings(name: name)) case final route?) route,
+      ],
+      onGenerateRoute: _hostedRoute,
       builder: (context, child) => FutureBuilder<Bootstrap>(
         future: _boot,
         builder: (context, snapshot) {
@@ -405,6 +436,30 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
         },
       ),
     );
+  }
+
+  Route<void>? _hostedRoute(RouteSettings settings) {
+    const origin = String.fromEnvironment('HOSTED_ORIGIN');
+    var name = settings.name ?? '';
+    if (name == '/paste' || name == 'seqpoint-gateway://open/paste') {
+      return MaterialPageRoute<void>(builder: (_) => const HostedSetup());
+    }
+    if (name.length > 4096) return null;
+    // Flutter removes the authority from warm link events. The gateway sends
+    // an opaque base64url payload so its fragment survives that conversion.
+    final route = Uri.tryParse(name);
+    final payload = route?.queryParameters['open'];
+    if (route?.path == '/invite' && payload != null) {
+      try {
+        final link = utf8.decode(base64Url.decode(base64Url.normalize(payload)));
+        if (!HostedInvite.parse(link).gateway) return null;
+        return MaterialPageRoute<void>(builder: (_) => HostedSetup(link: link));
+      } on FormatException { return null; }
+    }
+    if (origin.isEmpty) return null;
+    if (name.startsWith('$origin/invite#')) name = name.substring(origin.length);
+    if (!name.startsWith('/invite#')) return null;
+    return MaterialPageRoute<void>(builder: (_) => HostedSetup(link: '$origin$name'));
   }
 
   Widget _home() {

@@ -80,7 +80,9 @@ extension _AppSyncPairing on AppSyncService {
     }
     _enableBaseline();
     final envelope = await session.sealEpoch(saved.epochKey!, checkpointHash: saved.state.headHash);
-    return {'checkpoint': saved.state.toJson(), 'epoch_envelope': envelope};
+    final grant = await hostedGrant(saved.state.members[guest.deviceId]!);
+    return {'checkpoint': saved.state.toJson(), 'epoch_envelope': envelope,
+      if (grant != null) 'hosted_invite': grant};
   });
 
   Future<void> _persistGuest(PairingHandshake session) async {
@@ -104,12 +106,21 @@ extension _AppSyncPairing on AppSyncService {
       _run(() async {
     _requireNormalMode();
     _requireLocal(session.response.transcript.responder, session);
-    if (packet.length != 2 || packet['checkpoint'] is! Map || packet['epoch_envelope'] is! Map) {
+    if ((packet.length != 2 && !(packet.length == 3 && packet['hosted_invite'] is String)) || packet['checkpoint'] is! Map || packet['epoch_envelope'] is! Map) {
       throw const FormatException('配对交付包格式错误');
     }
     final checkpoint = Map<String, Object?>.from(packet['checkpoint'] as Map);
     final key = await session.openEpoch(Map<String, Object?>.from(packet['epoch_envelope'] as Map));
     await _controller!.initializeFromPairing(session: session, checkpoint: checkpoint, epochKey: key);
     _enableBaseline();
+    final invite = packet['hosted_invite'];
+    if (invite is String) {
+      final parsed = HostedInvite.parse(invite);
+      if (!parsed.gateway && !syncthingSupported) return;
+      if (parsed.issuer != base64Encode(session.response.transcript.initiator.signingPublicKey)) {
+        throw const FormatException('云节点授权签名人不匹配');
+      }
+      await secrets.write('$_syncthingKey.hostedPending', invite);
+    }
   });
 }

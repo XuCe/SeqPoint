@@ -2,6 +2,9 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleURLTypes</key>
+    <array><dict><key>CFBundleURLName</key><string>SeqPoint gateway</string>
+    <key>CFBundleURLSchemes</key><array><string>seqpoint-gateway</string></array></dict></array>
 	<key>SUPublicEDKey</key>
 	<string>/gGNvIEwYcexSWZI9Y0f3p29DGHZ9GHczAZa0JZKm4c=</string>
 	<key>SUEnableInstallerLauncherService</key>

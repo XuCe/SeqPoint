@@ -21,7 +21,11 @@ func run() error {
 	address := flag.String("listen", ":8080", "listen address")
 	cert := flag.String("tls-cert", "", "optional TLS certificate")
 	key := flag.String("tls-key", "", "optional TLS key")
+	multi := flag.Bool("gateway", false, "invitation-based multi-vault gateway")
 	flag.Parse()
+	if *multi {
+		return runGateway(*dataPath, *address, *cert, *key)
+	}
 	config, err := readConfig(*configPath)
 	if err != nil {
 		return err

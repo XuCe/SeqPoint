@@ -13,6 +13,7 @@ import 'sync_tls_store.dart';
 import 'lan_pairing_link.dart';
 import 'lan_pairing_network.dart';
 import 'syncthing_client.dart';
+import 'hosted_invite.dart';
 
 part 'app_sync_service_pairing.dart';
 part 'app_sync_service_recovery.dart';
@@ -35,6 +36,65 @@ class AppSyncService extends ChangeNotifier {
   bool get syncthingEnabled => _syncthingEnabled;
   String get syncthingMessage => _syncthingMessage;
   Future<String> loadSyncthingAddress() async => (await _readSyncthing())?.address ?? '';
+  Future<String?> hostedOrigin() async {
+    final config = await _readSyncthing();
+    return config?.apiKey.isEmpty == true ? config!.address : null;
+  }
+  Future<String?> pendingHostedInvite() async => _syncthingKey == null
+      ? null : secrets.read('$_syncthingKey.hostedPending');
+  Future<String?> hostedGrant(MemberKeys peer) async {
+    final gateway = await gatewayOrigin();
+    if (gateway == null && !syncthingEnabled) return null;
+    final origin = gateway ?? await hostedOrigin();
+    if (origin == null) return null;
+    final member = _controller!.authorize(relayVaultId!, peer.deviceId);
+    if (member == null || !listEquals(member.signingPublicKey, peer.signingPublicKey)) {
+      throw StateError('设备已不在资料库中');
+    }
+    return HostedInvite.delegate(origin, gateway != null ? relayVaultId! : _syncthingFolderId,
+        _local!.keys.signer, member.signingPublicKey, gateway: gateway != null);
+  }
+  Future<void> enableHosted(String link) async {
+    final invite = HostedInvite.parse(link);
+    if (!invite.gateway && !syncthingSupported) throw StateError('当前平台没有同步引擎');
+    if (!prepared) await prepare('本机');
+    if (!invite.gateway && !hasVault && invite.token.isNotEmpty) await newVault();
+    if (invite.gateway) {
+      await _run(() async {
+        _requirePrepared();
+        _requireNormalMode();
+        final signer = _local!.keys.signer;
+        final first = !hasVault;
+        if (first && invite.token.isEmpty || !first && !canSync) throw StateError('请先与资料库中的设备配对');
+        final staged = 'sync.gateway.newVault.${identity!.deviceId}';
+        // Keep the candidate ID across a lost response or a crash before local commit.
+        var candidate = relayVaultId ?? await secrets.read(staged);
+        if (candidate == null) {
+          final random = Random.secure();
+          candidate = base64UrlEncode(List.generate(32, (_) => random.nextInt(256))).replaceAll('=', '');
+          await secrets.write(staged, candidate);
+        }
+        final vault = candidate;
+        if (invite.issuer.isNotEmpty &&
+            (!verifiedPeers.any((p) => _authorize(vault, p.deviceId) != null &&
+                base64Encode(p.signingPublicKey) == invite.issuer) ||
+             !await signer.verify(utf8.encode(['seqpoint-gateway-grant-v1', invite.origin,
+               vault, base64Encode(signer.publicKey)].join('\n')), base64Decode(invite.grant),
+               base64Decode(invite.issuer)))) {
+          throw const FormatException('授权与当前配对设备不匹配');
+        }
+        await invite.enroll(vault, identity!.deviceId, signer);
+        if (first && !_closed) await _createLocalVault(vaultPublicId: vault);
+        if (_closed || !canSync || vault != relayVaultId) throw StateError('资料库已变化');
+        await _storeRelayEndpoint('gateway+${invite.origin}');
+        await secrets.delete(staged);
+      });
+    } else {
+      await _saveSyncthing(address: invite.origin, apiKey: '', invite: invite);
+    }
+    await secrets.delete('$_syncthingKey.hostedPending');
+  }
+
   Future<void> saveSyncthing({required String address, required String apiKey}) =>
       _saveSyncthing(address: address, apiKey: apiKey);
   Future<void> setSyncthingEnabled(bool enabled) => _setSyncthingEnabled(enabled);
@@ -164,6 +224,7 @@ class AppSyncService extends ChangeNotifier {
     final policy = controller!.policy;
     if (policy == null) return null;
     return LanSyncMembership(version: controller.version, policy: policy,
+        checkpointMemberHistory: controller.checkpointMemberHistory,
         epochKeys: current.epochKeys);
   }
 
@@ -259,8 +320,21 @@ class AppSyncService extends ChangeNotifier {
       _respondToInvitation(payload);
   Future<PairingHandshake> acceptResponse(Map<String, Object?> payload) => _acceptResponse(payload);
   Future<Map<String, Object?>> finishHost(PairingHandshake session) => _finishHost(session);
-  Future<void> finishGuest(PairingHandshake session, Map<String, Object?> packet) =>
-      _finishGuest(session, packet);
+  Future<void> finishGuest(PairingHandshake session, Map<String, Object?> packet) async {
+    await _finishGuest(session, packet);
+    await _resumeHostedEnrollment();
+  }
+  Future<void> _resumeHostedEnrollment() async {
+    if (_closed || !canSync) return;
+    try {
+      final pending = await pendingHostedInvite();
+      if (pending != null && !_closed) await enableHosted(pending);
+    } catch (_) {
+      if (_closed) return;
+      _syncthingMessage = '设备已配对，云节点暂未开通。请在同步设置中重试。';
+      notifyListeners();
+    }
+  }
   void cancelPairing() => _cancelPairing();
   Future<DeviceIdentity> beginIdentityRecovery(String name) =>
       _beginIdentityRecovery(name);
@@ -274,7 +348,9 @@ class AppSyncService extends ChangeNotifier {
       _createRecoveryInvitation();
 
   Future<void> newVault() => _newVault();
-  Future<void> _newVault({String? vaultPublicId}) => _run(() async {
+  Future<void> _newVault({String? vaultPublicId}) =>
+      _run(() => _createLocalVault(vaultPublicId: vaultPublicId));
+  Future<void> _createLocalVault({String? vaultPublicId}) async {
     _requirePrepared();
     _requireNormalMode();
     final random = Random.secure();
@@ -284,7 +360,7 @@ class AppSyncService extends ChangeNotifier {
         epochKey: VaultKey(epoch: 1, keyBytes: fresh()),
         tlsFingerprint: _tls!.fingerprint);
     _enableBaseline();
-  });
+  }
 
   String? get relayVaultId => _controller?.current?.state.vaultPublicId;
   String get relayNodeConfiguration {
@@ -302,7 +378,17 @@ class AppSyncService extends ChangeNotifier {
   Future<String> loadRelayEndpoint() async {
     final vault = relayVaultId;
     if (vault == null) return '';
-    return (await SharedPreferences.getInstance()).getString('sync.relay.$vault') ?? '';
+    final stored = await _relaySetting();
+    return stored.startsWith('gateway+') ? stored.substring(8) : stored;
+  }
+
+  int _relaySettingsRevision = 0;
+  int get relaySettingsRevision => _relaySettingsRevision;
+  Future<String> _relaySetting() async => relayVaultId == null ? '' :
+      (await SharedPreferences.getInstance()).getString('sync.relay.$relayVaultId') ?? '';
+  Future<String?> gatewayOrigin() async {
+    final stored = await _relaySetting();
+    return stored.startsWith('gateway+') ? stored.substring(8) : null;
   }
 
   Future<void> saveRelayEndpoint(String endpoint) => _run(() async {
@@ -311,11 +397,32 @@ class AppSyncService extends ChangeNotifier {
     if (value.isNotEmpty) {
       RelayTransport(endpoint: value, vaultPublicId: relayVaultId!, keys: _local!.keys).close();
     }
+    if (await gatewayOrigin() == value) return;
+    await _storeRelayEndpoint(value);
+  });
+
+  Future<void> _storeRelayEndpoint(String value) async {
     if (!await (await SharedPreferences.getInstance()).setString('sync.relay.$relayVaultId', value)) {
       throw StateError('节点地址保存失败');
     }
+    _relaySettingsRevision++;
     await _refreshAutomaticTarget();
-  });
+    _automatic?.request();
+  }
+
+  Future<void> _sendGatewayRevocations(String origin) async {
+    final revoked = _controller!.current!.state.revokedIds;
+    if (revoked.isEmpty) return;
+    final key = 'sync.gateway.revoked.${identity!.deviceId}.$relayVaultId.$origin';
+    final prefs = await SharedPreferences.getInstance();
+    final sent = (prefs.getStringList(key) ?? []).toSet();
+    for (final id in revoked.difference(sent)) {
+      await HostedInvite.revoke(origin, id, gateway: true).enroll(
+          relayVaultId!, identity!.deviceId, _local!.keys.signer);
+      sent.add(id);
+      if (!await prefs.setStringList(key, sent.toList())) throw StateError('撤销回执保存失败');
+    }
+  }
 
   Future<SyncOutcome> syncRelay({bool automatic=false}) => _run(() async {
     if(automatic && (!_automaticEnabled || _userPaused || _suspended)) throw StateError('自动同步已暂停');
@@ -325,11 +432,24 @@ class AppSyncService extends ChangeNotifier {
     _relayMessages.remove(vault);
     try {
       final endpoint = await loadRelayEndpoint();
-      if (endpoint.isEmpty) throw StateError('请先保存 HTTPS 节点地址');
+      if (endpoint.isEmpty) throw StateError('请先保存节点地址');
+      final gateway = await gatewayOrigin() == endpoint;
+      if (gateway) await _sendGatewayRevocations(endpoint);
       if (_closed || !canSync) throw StateError('同步已停止');
       if (_paused) { _runtime!.resume(); _paused = false; }
-      final result = await _runtime!.syncRelay(RelayTransport(
-        endpoint: endpoint, vaultPublicId: vault, keys: _local!.keys));
+      RelayTransport connect() => RelayTransport(endpoint: endpoint, vaultPublicId: vault, keys: _local!.keys);
+      final client = connect();
+      var result = await _runtime!.syncRelay(client);
+      if (gateway && result is Err<SyncOutcome> && {413,507}.contains(client.lastRejectedStatus)) {
+        result = await _runtime!.syncRelay(connect(), downloadOnly: true);
+        if (result case Ok<SyncOutcome>(:final value)) {
+          _lastRound = value;
+          _relayMessages[vault] = client.lastRejectedStatus == 507
+              ? '节点磁盘空间不足，已接收可用更新，本机改动等待上传'
+              : '上传超过容量或文件限制，已接收可用更新，本机改动等待上传';
+          return value;
+        }
+      }
       if (result case Ok<SyncOutcome>(:final value)) {
         _lastRound = value;
         _relayMessages[vault] = (_runtime?.mediaPending??false)
@@ -341,7 +461,11 @@ class AppSyncService extends ChangeNotifier {
       }
       throw StateError((result as Err<SyncOutcome>).message ?? '云同步失败');
     } catch (error) {
-      _relayMessages[vault] = '云同步未完成：$error';
+      final detail = error.toString();
+      _relayMessages[vault] = detail.contains('HTTP 413') ? '上传超过资料库配额或文件大小限制'
+          : detail.contains('HTTP 507') ? '节点磁盘空间不足，上传暂缓'
+          : detail.contains('HTTP 403') ? '节点已暂停此空间或设备无权访问'
+          : '云同步未完成：$error';
       rethrow;
     }
   });

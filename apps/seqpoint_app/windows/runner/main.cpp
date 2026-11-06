@@ -12,6 +12,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
   const HANDLE updateMutex = ::CreateMutexW(nullptr, FALSE, L"Local\\SeqPointUpdateRunning");
   if (updateMutex == nullptr) return EXIT_FAILURE;
 
+  const bool already_running = ::GetLastError() == ERROR_ALREADY_EXISTS;
+  auto command_line_arguments = GetCommandLineArguments();
+  if (already_running && command_line_arguments == std::vector<std::string>{"--gateway-invite"}) {
+    ::PostMessageW(HWND_BROADCAST, GatewayInviteMessage(), 0, 0);
+    return EXIT_SUCCESS;
+  }
+
   // Attach to console when present (e.g., 'flutter run') or create a
   // new console when running with a debugger.
   if (!::AttachConsole(ATTACH_PARENT_PROCESS) && ::IsDebuggerPresent()) {
@@ -24,8 +31,6 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   flutter::DartProject project(L"data");
 
-  std::vector<std::string> command_line_arguments =
-      GetCommandLineArguments();
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 

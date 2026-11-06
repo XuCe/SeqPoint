@@ -1,5 +1,7 @@
 # SeqPoint 个人云中转节点
 
+通过邀请为多个资料库提供同步，请使用[单容器网关部署指南](gateway-deploy/README.md)。下文是手工配置单个资料库的部署方式。
+
 Go 标准库文件节点 + Caddy HTTPS，支持手机和电脑跨网络、错时交换数据。
 A 上传后可以离线，B 稍后打开应用同步即可收到；B 修改并上传后，A 下次同步收到。
 不需要 MySQL、Redis、Syncthing 或客户端公网 IP。

@@ -51,7 +51,18 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('连接 Syncthing 节点'), findsOneWidget);
+    expect(find.text('启用云同步'), findsOneWidget);
+    expect(find.text('Syncthing 管理 API 地址'), findsNothing);
+    await tester.tap(find.text('启用云同步'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'https://cloud.example/invite#${'a' * 64}');
+    await tester.pump();
+    expect(find.text('https://cloud.example'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('自建 Syncthing 节点'));
+    await tester.tap(find.text('自建 Syncthing 节点'));
+    await tester.pumpAndSettle();
     expect(find.textContaining('NAS'), findsNothing);
     expect(find.text('Syncthing 管理 API 地址'), findsOneWidget);
     final key = find.byKey(const ValueKey('syncthing-api-key'));
