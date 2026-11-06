@@ -70,7 +70,7 @@ jobs:
         if: inputs.platform == 'windows'
         shell: bash
         run: |
-          bash scripts/prepare_test_tls.sh
+          MSYS_NO_PATHCONV=1 bash scripts/prepare_test_tls.sh
           dart pub get
           cd packages/seqpoint_core
           dart test --reporter expanded test/sync/sync_cache_gc_test.dart
