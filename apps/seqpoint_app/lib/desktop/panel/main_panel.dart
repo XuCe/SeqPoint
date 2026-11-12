@@ -347,7 +347,7 @@ class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindi
   Widget _content() => switch (_section) {
     PanelSection.today => TodayView(key: ValueKey(_revision), onChanged: () => setState(() {})),
     PanelSection.noteWall => NoteWallView(key: ValueKey(_revision)),
-    PanelSection.items => ItemsView(key: ValueKey(_revision), onChanged: () => setState(() {})),
+    PanelSection.items => ItemsView(onChanged: () => setState(() {})),
     PanelSection.tags => const TagsView(),
     PanelSection.archive => const ArchiveView(),
     PanelSection.trash => TrashView(onChanged: () => setState(() {})),

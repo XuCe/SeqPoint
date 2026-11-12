@@ -72,26 +72,35 @@ class ItemRepository {
       .map(RowMappers.item)
       .toList();
 
-  /// 全部未完成事项，最近创建的在前。用于"全部事项"列表。
-  List<Item> openAll({int limit = 500}) => _openItems(limit: limit);
+  /// 全部未完成事项，最近创建的在前。
+  List<Item> openAll({int limit = 500}) => listItems(limit: limit);
 
-  List<Item> _openItems({required int limit, bool withTriggerOnly = false}) {
+  List<Item> listItems({
+    String titleKeyword = '',
+    ItemStatus? status = ItemStatus.todo,
+    int limit = 500,
+    bool withTriggerOnly = false,
+  }) {
+    final keyword = titleKeyword.trim();
+    final statusFilter = status == null ? "status IN ('todo', 'done')" : 'status = ?';
+    final titleFilter = keyword.isEmpty ? '' : 'AND instr(lower(title), lower(?)) > 0';
     final triggerFilter = withTriggerOnly ? """
       AND (due_at IS NOT NULL OR id IN (SELECT item_id FROM reminders
            WHERE enabled = 1 AND mode IN ('exact', 'relative')))
     """ : '';
     return _db.raw
-      .select("SELECT * FROM items WHERE status = 'todo' AND deleted_at IS NULL "
+      .select('SELECT * FROM items WHERE $statusFilter AND deleted_at IS NULL '
           'AND NOT EXISTS (SELECT 1 FROM notes n '
           'WHERE n.id = items.note_id AND n.deleted_at IS NOT NULL) '
-          '$triggerFilter ORDER BY created_at DESC LIMIT ?', [limit])
+          '$titleFilter $triggerFilter ORDER BY created_at DESC LIMIT ?',
+          [if (status != null) status.dbValue, if (keyword.isNotEmpty) keyword, limit])
       .map(RowMappers.item)
       .toList();
   }
 
   /// 调度必须覆盖全部未完成事项；SQLite LIMIT -1 表示不限制数量。
   List<Item> remindable({bool withTriggerOnly = false}) =>
-      _withoutIdeas(_openItems(limit: -1, withTriggerOnly: withTriggerOnly));
+      _withoutIdeas(listItems(limit: -1, withTriggerOnly: withTriggerOnly));
 
   List<String> _ideaTagIds() => _db.raw.select('SELECT * FROM tags').map(RowMappers.tag)
       .where((tag) => tag.isIdea).map((tag) => tag.id).toList();
@@ -156,6 +165,12 @@ class ItemRepository {
         .map(RowMappers.item)
         .toList());
   }
+
+  void softDelete(String id) => _db.transaction(() {
+    final item = byId(id);
+    if (item == null || item.deletedAt != null) return;
+    update(item.copyWith(deletedAt: _clock.now()));
+  });
 
   /// 合并编辑期间其他窗口的改动；同一字段冲突时不写入。
   bool saveEdits(Item original, {

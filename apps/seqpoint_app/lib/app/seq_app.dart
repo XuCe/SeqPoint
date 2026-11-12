@@ -3,6 +3,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
 import '../settings/hosted_setup.dart';
 import '../sync/hosted_invite.dart';
@@ -213,7 +214,7 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
       await _drainSync();
       await _reminders?.pause();
       final protection = await SnapshotService(old.db).createManual(
-          Directory('${File(path).parent.path}/snapshots'));
+          Directory.fromUri(File(path).parent.uri.resolve('snapshots')));
       final ids = old.db.raw.select('SELECT notification_id FROM notification_plans');
       final notifications = widget.notifications;
       if (ids.isNotEmpty && notifications == null) throw StateError('无法撤销旧提醒，请先恢复通知功能');
@@ -321,8 +322,13 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
         unawaited(navigator.push<void>(MaterialPageRoute(
           builder: (_) => NoteDetailPage(noteId: note.id))));
       }
-      unawaited(navigator.push<void>(MaterialPageRoute(
-        builder: (_) => ItemEditorPage(itemId: item.id))));
+      final editor = MaterialPageRoute<bool>(builder: (_) => ItemEditorPage(itemId: item.id));
+      if (await navigator.push(editor) != true) return;
+      // 等编辑页退出，避免附件面板刷新已删除的事项。
+      await editor.completed;
+      if (mounted && !_restoring && identical(boot, _currentBoot)) {
+        setState(() => _syncRevision++);
+      }
     } catch (e) {
       _notice('打开提醒失败：$e');
     }
@@ -344,6 +350,12 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    if (widget._stickyNoteId != null) {
+      final binding = WidgetsBinding.instance;
+      // Keep the loading scaffold off screen. FutureBuilder also paints database errors.
+      binding.deferFirstFrame();
+      _boot.whenComplete(binding.allowFirstFrame).ignore();
+    }
     WidgetsBinding.instance.addObserver(this);
     if (_desktopInvites) {
       _gatewayChannel.setMethodCallHandler((call) async {
@@ -387,6 +399,9 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      locale: const Locale('zh', 'CN'),
+      supportedLocales: const [Locale('zh', 'CN')],
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
       navigatorKey: _navigator,
       scaffoldMessengerKey: _messenger,
       title: widget.title,

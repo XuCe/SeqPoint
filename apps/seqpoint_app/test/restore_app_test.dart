@@ -13,6 +13,7 @@ import 'package:seqpoint_app/settings/backup_settings_page.dart';
 import 'package:seqpoint_core/seqpoint_core.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
 import 'notification_support.dart';
+import 'note_editor_test_support.dart';
 import 'desktop_residency_support.dart';
 import 'global_hotkey_support.dart';
 
@@ -84,10 +85,10 @@ void main() {
     final navigator = tester.state<NavigatorState>(find.byType(Navigator).first);
     unawaited(navigator.push<void>(MaterialPageRoute(builder: (_) => const NoteEditor())));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField).first, '不能丢失的未保存草稿');
+    await typeNote(tester, '不能丢失的未保存草稿');
     await expectLater(scope.restoreSnapshot!(source), throwsA(predicate((error) =>
         error.toString().contains('保存'))));
-    expect(find.text('不能丢失的未保存草稿'), findsOneWidget);
+    expect(noteEditor(tester).controller.text, '不能丢失的未保存草稿');
     expect(find.byType(NoteEditor), findsOneWidget);
     expect(scope.notes.active(), isEmpty);
     await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle();
@@ -125,7 +126,7 @@ void main() {
     expect(source.readAsBytesSync(), sourceBytes);
     expect(hotkeys.bound, hasLength(4));
     expect(hotkeys.releases, 0); expect(tray.disposals, 0);
-    await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle();
+    await _closeRestoredApp(tester);
   });
 
   testWidgets('候选语义核验失败关闭候选并重开旧容器，保留保护快照', (tester) async {
@@ -141,7 +142,7 @@ void main() {
     expect(Directory('${directory.path}/snapshots').listSync().whereType<File>(), hasLength(1));
     expect(source.readAsBytesSync(), sourceBytes);
     await expectLater(DesktopWindowService().otherWindowIds(), throwsStateError);
-    await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle();
+    await _closeRestoredApp(tester);
   });
 
   testWidgets('已完成事项中的坏时间同样阻止提交并恢复旧数据', (tester) async {
@@ -151,7 +152,7 @@ void main() {
     expect(await _restoreAndPump(tester, scope, source), isA<FormatException>());
     final updated = tester.widget<AppScope>(find.byType(AppScope));
     expect(updated.notes.active().single.rawContent, '旧数据保留');
-    await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle();
+    await _closeRestoredApp(tester);
   });
 
   testWidgets('撤销旧提醒失败时不关闭旧库，并重新启动原计划', (tester) async {
@@ -171,7 +172,7 @@ void main() {
     expect(updated.notes.active().single.rawContent, '旧数据保留');
     expect(notifications.scheduled.map((r) => r.id).toSet(), {id});
     expect(File('${directory.path}/seqpoint.db.restore-pending').existsSync(), isFalse);
-    await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle();
+    await _closeRestoredApp(tester);
   });
 
   testWidgets('存在旧通知ID但通知服务不可用时不冒险换库', (tester) async {
@@ -184,7 +185,7 @@ void main() {
     final updated = tester.widget<AppScope>(find.byType(AppScope));
     expect(updated.database, same(scope.database));
     expect(updated.notes.active().single.rawContent, '旧数据保留');
-    await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle();
+    await _closeRestoredApp(tester);
   });
 
   testWidgets('撤销包括历史ID的旧提醒后，按恢复库期限重排', (tester) async {
@@ -208,7 +209,7 @@ void main() {
     expect(notifications.cancelled, containsAll([history.id, oldId]));
     expect(notifications.scheduled.last.itemId, restored.id);
     expect(updated.reminders, isNot(same(scope.reminders)));
-    await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle();
+    await _closeRestoredApp(tester);
   });
 
   testWidgets('等待撤销时Root卸载中止恢复，不在卸载后提交新容器', (tester) async {
@@ -250,7 +251,7 @@ void main() {
     final snapshots = Directory('${directory.path}/snapshots').resolveSymbolicLinksSync();
     expect(find.textContaining('原数据保护副本：$snapshots${Platform.pathSeparator}'), findsOneWidget,
         reason: tester.widgetList<Text>(find.byType(Text)).map((t) => t.data).join('\n'));
-    await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle();
+    await _closeRestoredApp(tester);
   });
 
   testWidgets('换库前已等待唤窗的通知点击返回后不查询旧容器', (tester) async {
@@ -279,7 +280,7 @@ void main() {
     expect(focused, isTrue);
     expect(find.textContaining('打开提醒失败'), findsNothing);
     expect(tester.widget<AppScope>(find.byType(AppScope)).notes.active().single.rawContent, '候选数据');
-    await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle();
+    await _closeRestoredApp(tester);
   });
 
   testWidgets('当前数据库不能作为恢复源，不关闭连接或生成保护副本', (tester) async {
@@ -362,6 +363,13 @@ class _GatedCancel extends TestNotifications {
     entered.complete(); await release.future;
     await super.cancel(id);
   }
+}
+
+Future<void> _closeRestoredApp(WidgetTester tester) async {
+  final scope = tester.widget<AppScope>(find.byType(AppScope));
+  await tester.runAsync(scope.beforeQuit!);
+  await tester.pumpWidget(const SizedBox.shrink());
+  await tester.pumpAndSettle();
 }
 
 Future<AppScope> _mountRoot(WidgetTester tester, {SeqApp? app}) async {

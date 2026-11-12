@@ -518,13 +518,12 @@ jobs:
           body: |
             ## 本版本
 
-            - 新增序点同步网关，群晖可通过单个 Docker 容器部署。首台设备在「设置 → 同步 → 启用云同步」粘贴邀请即可开通，其他设备配对后加入同一资料库。
-            - 网关支持 HTTP 和 HTTPS，提供邀请管理、空间配额、暂停及设备撤销，客户端支持错时同步笔记和附件。
-            - 修复 HTTP 管理页生成邀请时的来源校验错误，并为 HTTP 邀请页面提供手动复制入口。
-            - 支持浏览器唤起客户端处理邀请，完善离线配对、空间不足和历史同步状态处理。
+            - 桌面端和移动端的「全部事项」支持按标题查找，并可切换「待办」「已完成」「全部」。切换时保留关键词。
+            - 在事项编辑页点击「删除」即可移除当前事项，保留来源便签的正文和其他事项。
+            - 便签支持独立标题、Markdown 即时排版和快捷输入。编辑时可通过斜杠命令设置提醒。
+            - 改善 Windows 从便签墙连续打开便签的速度和窗口尺寸恢复，日期与时间选择器支持中文。
 
-            手机需保持应用在前台同步。使用步骤见 [设备同步说明](https://github.com/XuCe/SeqPoint/blob/${{ github.ref_name }}/docs/device-sync.md)。
-            网关功能需要完整安装本版本。部署步骤见 [群晖网关指南](https://github.com/XuCe/SeqPoint/blob/${{ github.ref_name }}/node/gateway-deploy/README.md)。HTTP 会明文传输邀请和连接凭据，适合可信内网。
+            跨设备使用请参阅[设备同步说明](https://github.com/XuCe/SeqPoint/blob/${{ github.ref_name }}/docs/device-sync.md)和[群晖网关指南](https://github.com/XuCe/SeqPoint/blob/${{ github.ref_name }}/node/gateway-deploy/README.md)。
 
             ## 下载
 

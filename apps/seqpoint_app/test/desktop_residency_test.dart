@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'note_editor_test_support.dart';
 import 'package:seqpoint_app/app/bootstrap.dart';
 import 'package:seqpoint_app/desktop/panel/main_panel.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
@@ -95,10 +96,10 @@ void main() {
     expect(calls.where((c) => c == 'show'), hasLength(1));
     expect(calls.where((c) => c == 'focus'), hasLength(1));
     tray.quick!(); await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '托盘唤起保留的草稿');
+    await typeNote(tester, '托盘唤起保留的草稿');
     tray.open!(); tray.quick!(); await tester.pumpAndSettle();
-    expect(find.byType(TextField), findsOneWidget);
-    expect(find.text('托盘唤起保留的草稿'), findsOneWidget);
+    expect(noteField, findsOneWidget);
+    expect(noteEditor(tester).controller.text, '托盘唤起保留的草稿');
     tray.quit!(); tray.quit!(); await tester.pumpAndSettle();
     // Stream.cancel 的已完成共享 Future 使用根 Zone，需同时推进真实微任务。
     await tester.runAsync(() async {});
@@ -132,13 +133,13 @@ void main() {
       {'isPreventClose': true});
     final listener = tester.state(find.byType(MainPanel)) as WindowListener;
     hotkeys.events.add(HotkeyAction.newNote); await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '关闭后仍保留的草稿');
+    await typeNote(tester, '关闭后仍保留的草稿');
     listener.onWindowClose(); await tester.pumpAndSettle();
     expect(calls.where((c) => c.method == 'hide'), hasLength(1));
     expect(calls.any((c) => c.method == 'destroy'), isFalse);
     expect(hotkeys.bound, hasLength(4));
     expect(hotkeys.releases, 0);
-    expect(find.text('关闭后仍保留的草稿'), findsOneWidget);
+    expect(noteEditor(tester).controller.text, '关闭后仍保留的草稿');
     expect(boot.notes.active(), isEmpty);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();

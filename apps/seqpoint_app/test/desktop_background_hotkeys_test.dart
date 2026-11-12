@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'note_editor_test_support.dart';
 import 'package:seqpoint_app/app/bootstrap.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
 import 'desktop_residency_support.dart';
@@ -38,9 +39,9 @@ void main() {
       hotkeys.events.add(action); await tester.pumpAndSettle();
       expect(visible, isTrue); expect(focused, 1);
       expect(hotkeys.bound, hasLength(4)); expect(hotkeys.releases, 0);
-      expect(find.byType(TextField), action == HotkeyAction.toggleQuickNote
+      expect(action == HotkeyAction.openSearch ? find.byType(TextField) : noteField, action == HotkeyAction.toggleQuickNote
         ? findsNothing : findsOneWidget);
-      if (action == HotkeyAction.clipboardToNote) expect(find.text('后台剪贴板内容'), findsOneWidget);
+      if (action == HotkeyAction.clipboardToNote) expect(noteEditor(tester).controller.text, '后台剪贴板内容');
       await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle();
     });
   }

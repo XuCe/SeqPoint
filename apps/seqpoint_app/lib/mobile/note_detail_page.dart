@@ -8,6 +8,7 @@ import '../shared/item_editor_page.dart';
 import '../shared/organize_button.dart';
 import '../desktop/sticky/item_row.dart';
 import '../theme/seq_tokens.dart';
+import 'quick_capture_page.dart';
 
 /// 便签详情：移动端上的"那张纸"。
 ///
@@ -40,14 +41,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
     });
   }
 
-  Map<int, Item> _itemsByLine(List<String> lines) => {
-    for (final i in _items)
-      if (i.lineIndex != null &&
-          i.lineIndex! >= 0 &&
-          i.lineIndex! < lines.length &&
-          lines[i.lineIndex!].trim() == i.title)
-        i.lineIndex!: i,
-  };
+  Map<int, Item> _itemsByLine(List<String> lines) => Note.itemsByLine(lines, _items);
 
   void _toggle(Item item) {
     AppScope.of(context).noteService.toggleItem(item.id);
@@ -113,6 +107,12 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         foregroundColor: SeqTokens.noteInk,
         title: Text(note.title ?? '便签'),
         actions: [
+          IconButton(tooltip: '编辑便签', icon: const Icon(Icons.edit_outlined),
+            onPressed: () async {
+              final saved = await Navigator.of(context).push<bool>(
+                  MaterialPageRoute(builder: (_) => QuickCapturePage(note: note)));
+              if (mounted && saved == true) _reload();
+            }),
           OrganizeButton(noteId: widget.noteId, onApplied: _reload),
           PopupMenuButton<String>(
             onSelected: (value) {
@@ -145,7 +145,7 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
           final extra = index >= lines.length;
           final item = extra ? standalone[index - lines.length] : byLine[index];
           return ItemRow(
-            text: extra ? item!.title : lines[index],
+            text: item?.title ?? lines[index],
             isItem: item != null,
             isDone: item?.isDone ?? false,
             onToggle: item == null ? null : () => _toggle(item),

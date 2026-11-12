@@ -7,6 +7,7 @@
 #include "desktop_multi_window/desktop_multi_window_plugin.h"
 #include <audioplayers_windows/audioplayers_windows_plugin.h>
 #include <flutter_secure_storage_windows/flutter_secure_storage_windows_plugin.h>
+#include <native_adaptive_toolbox/native_adaptive_toolbox_plugin.h>
 #include <record_windows/record_windows_plugin_c_api.h>
 #include <speech_to_text_windows/speech_to_text_windows.h>
 #include <window_manager/window_manager_plugin.h>
@@ -48,6 +49,8 @@ bool FlutterWindow::OnCreate() {
     auto* registry = view_controller->engine();
     DesktopMultiWindowPluginRegisterWithRegistrar(
         registry->GetRegistrarForPlugin("DesktopMultiWindowPlugin"));
+    NativeAdaptiveToolboxPluginRegisterWithRegistrar(
+        registry->GetRegistrarForPlugin("NativeAdaptiveToolboxPlugin"));
     WindowManagerPluginRegisterWithRegistrar(
         registry->GetRegistrarForPlugin("WindowManagerPlugin"));
     FlutterSecureStorageWindowsPluginRegisterWithRegistrar(

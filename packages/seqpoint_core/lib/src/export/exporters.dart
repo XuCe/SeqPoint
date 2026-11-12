@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import '../db/database.dart';
 import '../model/enums.dart';
 import '../model/item.dart';
+import '../model/note.dart';
 import '../repo/item_repository.dart';
 import '../repo/mappers.dart';
 import '../repo/note_repository.dart';
@@ -162,12 +163,7 @@ class MarkdownExporter implements Exporter {
 
       // 事项按行号回填到原文对应位置，其余行原样保留。
       final lines = note.lines;
-      final byLine = {
-        for (final i in noteItems)
-          if (i.lineIndex != null && i.lineIndex! >= 0 &&
-              i.lineIndex! < lines.length &&
-              lines[i.lineIndex!].trim() == i.title) i.lineIndex!: i,
-      };
+      final byLine = Note.itemsByLine(lines, noteItems);
       final rendered = <String>{};
       for (var i = 0; i < lines.length; i++) {
         final item = byLine[i];
@@ -176,7 +172,7 @@ class MarkdownExporter implements Exporter {
           continue;
         }
         rendered.add(item.id);
-        buffer.writeln(_itemLine(item, items, tags));
+        buffer.writeln(_itemLine(item, items, tags, body: Note.lineBody(lines[i])));
       }
 
       // 重复、越界或没有行号的事项也必须保留。
@@ -211,12 +207,13 @@ class MarkdownExporter implements Exporter {
     return '- [$label]($destination)';
   }
 
-  String _itemLine(Item item, ItemRepository items, TagRepository tags) {
+  String _itemLine(Item item, ItemRepository items, TagRepository tags, {String? body}) {
     final box = item.status == ItemStatus.done ? '[x]' : '[ ]';
     final tagNames = items.tagIdsOf(item.id).map((id) => tags.byId(id)?.name)
         .whereType<String>().map((name) => '#$name').join(' ');
     final due = item.dueAt == null ? '' : ' (${_formatDate(item.dueAt!)})';
-    final title = item.status == ItemStatus.canceled ? '~~${item.title}~~ · 已取消' : item.title;
+    final text = body ?? item.title;
+    final title = item.status == ItemStatus.canceled ? '~~$text~~ · 已取消' : text;
     return '- $box $title$due${tagNames.isEmpty ? '' : ' $tagNames'}';
   }
 

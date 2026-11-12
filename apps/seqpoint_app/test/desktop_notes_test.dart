@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'note_editor_test_support.dart';
 import 'package:seqpoint_app/app/app_scope.dart';
 import 'package:seqpoint_app/app/bootstrap.dart';
 import 'package:seqpoint_app/desktop/panel/main_panel.dart';
@@ -10,6 +12,7 @@ import 'package:seqpoint_app/desktop/sticky/sticky_window.dart';
 import 'package:seqpoint_app/platform/desktop_windows.dart';
 import 'package:seqpoint_app/shared/note_card.dart';
 import 'package:seqpoint_app/shared/item_tile.dart';
+import 'package:seqpoint_platform/seqpoint_platform.dart' show WindowFrame;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -32,7 +35,7 @@ void main() {
     await tester.tap(find.text('新建便签'));
     await tester.pumpAndSettle();
     final save = find.widgetWithText(TextButton, '保存');
-    final controller = tester.widget<TextField>(find.byType(TextField)).controller!;
+    final controller = noteEditor(tester).controller;
     expect(tester.widget<TextButton>(save).onPressed, isNull);
     controller.value = const TextEditingValue(
       text: '语音确认的便签', selection: TextSelection.collapsed(offset: 7));
@@ -88,7 +91,7 @@ void main() {
       await tester.pumpWidget(_app(boot, const MainPanel()));
       await tester.tap(find.text('新建便签'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '快捷键保存');
+      await typeNote(tester, '快捷键保存');
       await tester.pump();
       await tester.sendKeyDownEvent(modifier);
       await tester.sendKeyEvent(LogicalKeyboardKey.enter);
@@ -110,7 +113,7 @@ void main() {
           .onPressed,
       isNull,
     );
-    await tester.enterText(find.byType(TextField), '尚未保存');
+    await typeNote(tester, '尚未保存');
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
     expect(boot.notes.active(), isEmpty);
@@ -127,12 +130,12 @@ void main() {
       await tester.pumpWidget(_app(boot, const MainPanel()));
       await tester.tap(find.text('新建便签'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), '失败后仍保留');
+      await typeNote(tester, '失败后仍保留');
       await tester.pump();
       await tester.tap(find.text('保存'));
       await tester.pump();
       expect(
-        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        noteEditor(tester).controller.text,
         '失败后仍保留',
       );
       expect(find.text('保存失败，请重试。输入的内容仍在。'), findsOneWidget);
@@ -156,10 +159,10 @@ void main() {
     await tester.tap(find.byTooltip('编辑便签'));
     await tester.pumpAndSettle();
     expect(
-      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      noteEditor(tester).controller.text,
       '原始正文\n保留待办',
     );
-    await tester.enterText(find.byType(TextField), '修改后的正文\n保留待办');
+    await typeNote(tester, '修改后的正文\n保留待办');
     await tester.pump();
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
@@ -169,7 +172,7 @@ void main() {
     expect(find.text('修改后的正文'), findsOneWidget);
     await tester.tap(find.byTooltip('编辑便签'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '只保留一行正文');
+    await typeNote(tester, '只保留一行正文');
     await tester.pump();
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
@@ -185,6 +188,11 @@ void main() {
     final note = boot.noteService.capture('需要打开的便签');
     SharedPreferences.setMockInitialValues({});
     const channel = MethodChannel('mixin.one/desktop_multi_window');
+    const channels = MethodChannel('mixin.one/desktop_multi_window/channels');
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channels, (call) async {
+      throw PlatformException(code: 'CHANNEL_NOT_FOUND');
+    });
+    addTearDown(() => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channels, null));
     final calls = <MethodCall>[];
     final live = <Map<String, Object>>[];
     tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(channel, (
@@ -214,6 +222,7 @@ void main() {
     final create = calls.where((c) => c.method == 'createWindow');
     expect(create, hasLength(1));
     final arguments = create.single.arguments as Map;
+    expect(arguments['hiddenAtLaunch'], true);
     expect(jsonDecode(arguments['arguments'] as String)['noteId'], note.id);
     await tester.tap(find.byType(NoteCard));
     await tester.pumpAndSettle();
@@ -229,12 +238,75 @@ void main() {
     await tester.pumpWidget(_app(boot, const MainPanel()));
     await tester.tap(find.text('新建便签'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), '桌面记录\n记得回复客户');
+    await typeNote(tester, '桌面记录\n记得回复客户');
+    await tester.enterText(find.widgetWithText(TextField, '标题（选填）'), '工作跟进');
     await tester.pump();
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(boot.notes.active().single.rawContent, '桌面记录\n记得回复客户');
+    expect(find.text('工作跟进'), findsOneWidget);
     expect(find.byType(NoteCard), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('第一张开窗尚未完成时，第二张仍能从便签墙打开', (tester) async {
+    final boot = await Bootstrap.run(dbPath: ':memory:');
+    addTearDown(boot.dispose);
+    boot.noteService.capture('第一张');
+    boot.noteService.capture('第二张');
+    final windows = _OpeningWindows();
+    await tester.pumpWidget(_app(boot, const MainPanel(), windows: windows));
+    await tester.tap(find.text('便签墙'));
+    await tester.pumpAndSettle();
+    for (final text in ['第一张', '第一张', '第二张']) {
+      await tester.tap(find.text(text));
+    }
+    expect(windows.requests, hasLength(2));
+    expect(windows.requests.toSet(), hasLength(2));
+    windows.ready.complete('window');
+    await tester.pump();
+  });
+
+  testWidgets('只为手动调过大小的新建便签记住草稿窗口尺寸', (tester) async {
+    final boot = await Bootstrap.run(dbPath: ':memory:');
+    addTearDown(boot.dispose);
+    SharedPreferences.setMockInitialValues({});
+    const native = MethodChannel('window_manager');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(native, (call) async => call.method == 'getBounds'
+        ? {'x': 36.0, 'y': 44.0, 'width': 712.0, 'height': 528.0} : null);
+    addTearDown(() => messenger.setMockMethodCallHandler(native, null));
+    final windows = DesktopWindowService();
+    await tester.pumpWidget(_app(boot, const MainPanel(), windows: windows));
+    for (final title in ['手动调过窗口', '保持默认窗口']) {
+      await tester.tap(find.text('新建便签'));
+      await tester.pumpAndSettle();
+      await typeNote(tester, title);
+      if (title == '手动调过窗口') {
+        for (final listener in windowManager.listeners.toList()) {
+          listener.onWindowResized();
+        }
+      }
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      final note = boot.notes.active().firstWhere((note) => note.rawContent == title);
+      final frame = await windows.loadFrame(note.id);
+      if (title == '手动调过窗口') {
+        expect(frame!.toJson(), {'x': 36.0, 'y': 44.0, 'w': 712.0, 'h': 528.0});
+      } else {
+        expect(frame, isNull);
+      }
+    }
+  });
+}
+
+class _OpeningWindows extends DesktopWindowService {
+  final ready = Completer<String>();
+  final requests = <String>[];
+
+  @override
+  Future<String> openSticky(String noteId, {WindowFrame? frame}) {
+    requests.add(noteId);
+    return ready.future;
+  }
 }

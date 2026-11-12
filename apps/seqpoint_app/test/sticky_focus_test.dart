@@ -6,6 +6,7 @@ import 'package:seqpoint_app/app/bootstrap.dart';
 import 'package:seqpoint_app/desktop/sticky/item_row.dart';
 import 'package:seqpoint_app/desktop/sticky/sticky_window.dart';
 import 'package:window_manager/window_manager.dart';
+import 'note_editor_test_support.dart';
 
 Widget _app(Bootstrap b, String id) => AppScope(
   noteService: b.noteService, notes: b.notes, items: b.items,
@@ -35,23 +36,29 @@ void main() {
     await t.binding.setSurfaceSize(const Size(337, 307));
     addTearDown(() => t.binding.setSurfaceSize(null));
     final (local, _) = await _openWindows();
-    final note = local.noteService.capture('单击选中便签');
+    final note = local.noteService.capture(
+        ['单击选中便签', ...List.generate(60, (i) => '正文第$i行')].join('\n'), title: '工作安排');
     await t.pumpWidget(_app(local, note.id));
     _focusWindow();
     await t.pump();
     expect(find.byTooltip('新建便签'), findsNothing);
+    expect(find.text('工作安排').hitTestable(), findsOneWidget);
     await t.tap(find.text('单击选中便签'));
     await t.pump();
     expect(find.byTooltip('新建便签'), findsOneWidget);
     expect(find.byTooltip('编辑便签'), findsOneWidget);
     expect(local.items.byNote(note.id), isEmpty);
+    final titleY = t.getTopLeft(find.text('工作安排')).dy;
+    await t.drag(find.byType(ListView).first, const Offset(0, -420));
+    await t.pumpAndSettle();
+    expect(t.getTopLeft(find.text('工作安排')).dy, titleY);
     for (final listener in windowManager.listeners) {
       listener.onWindowBlur();
     }
     await t.pump();
     expect(find.byTooltip('新建便签'), findsNothing);
     expect(find.byTooltip('编辑便签'), findsNothing);
-    expect(find.text('单击选中便签'), findsOneWidget);
+    expect(find.text('工作安排').hitTestable(), findsOneWidget);
   });
 
   testWidgets('便签获得焦点后显示另一个数据库连接保存的正文', (t) async {
@@ -104,14 +111,14 @@ void main() {
     await t.pump();
     await t.tap(find.byTooltip('编辑便签'));
     await t.pumpAndSettle();
-    await t.enterText(find.byType(TextField), '本地未保存草稿');
-    final controller = t.widget<TextField>(find.byType(TextField)).controller!;
+    await typeNote(t, '本地未保存草稿');
+    final controller = noteEditor(t).controller;
     controller.selection = const TextSelection(baseOffset: 1, extentOffset: 4);
     final draft = controller.value;
     other.noteService.editContent(note.id, '其他窗口最新正文');
     _focusWindow();
     await t.pumpAndSettle();
-    expect(t.widget<TextField>(find.byType(TextField)).controller, same(controller));
+    expect(noteEditor(t).controller, same(controller));
     expect(controller.value, draft);
     expect(local.notes.byId(note.id)!.rawContent, '其他窗口最新正文');
     await t.tap(find.byType(BackButton));
@@ -157,13 +164,17 @@ void main() {
       await t.pump();
       await t.tap(find.byTooltip(mode == '正文' ? '编辑便签' : '编辑事项'));
       await t.pumpAndSettle();
-      await t.enterText(find.byType(TextField), '正在输入的草稿');
+      Future<void> enterDraft(String text) => mode == '正文'
+          ? typeNote(t, text) : t.enterText(find.byType(TextField), text);
+      await enterDraft('正在输入的草稿');
       other.notes.update(other.notes.byId(note.id)!.copyWith(title: '外部标题'));
       other.noteService.toggleItem(item.id);
       _focusWindow();
       await t.pumpAndSettle();
-      expect(t.widget<TextField>(find.byType(TextField)).controller!.text, '正在输入的草稿');
-      await t.enterText(find.byType(TextField), '继续完成并保存');
+      final controller = mode == '正文' ? noteEditor(t).controller
+          : t.widget<TextField>(find.byType(TextField)).controller!;
+      expect(controller.text, '正在输入的草稿');
+      await enterDraft('继续完成并保存');
       await t.tap(find.text('保存'));
       await t.pumpAndSettle();
       expect(find.text('外部标题'), findsOneWidget);
@@ -186,23 +197,23 @@ void main() {
     await t.pump();
     await t.tap(find.byTooltip('编辑便签'));
     await t.pumpAndSettle();
-    await t.enterText(find.byType(TextField), '失败后保留的草稿');
-    final controller = t.widget<TextField>(find.byType(TextField)).controller!;
+    await typeNote(t, '失败后保留的草稿');
+    final controller = noteEditor(t).controller;
     final draft = controller.value;
-    other.noteService.editContent(note.id, '他窗已保存数据');
     final activityCount = local.db.raw.select('SELECT id FROM activities').length;
     local.db.raw.execute('CREATE TRIGGER reject_save BEFORE INSERT ON activities '
       "BEGIN SELECT RAISE(ABORT, 'test'); END;");
     await t.tap(find.text('保存'));
     await t.pumpAndSettle();
+    expect(local.db.raw.select('SELECT id FROM activities'), hasLength(activityCount));
+    local.db.raw.execute('DROP TRIGGER reject_save');
+    other.noteService.editContent(note.id, '他窗已保存数据');
     _focusWindow();
     await t.pumpAndSettle();
     expect(t.takeException(), isNull);
     expect(controller.value, draft);
     expect(find.text('保存失败，请重试。输入的内容仍在。'), findsOneWidget);
     expect(other.notes.byId(note.id)!.rawContent, '他窗已保存数据');
-    expect(local.db.raw.select('SELECT id FROM activities'), hasLength(activityCount));
-    local.db.raw.execute('DROP TRIGGER reject_save');
     await t.tap(find.byType(BackButton));
     await t.pumpAndSettle();
     expect(find.text('他窗已保存数据'), findsOneWidget);

@@ -13,6 +13,7 @@ import flutter_local_notifications
 import flutter_secure_storage_darwin
 import hotkey_manager_macos
 import mobile_scanner
+import native_adaptive_toolbox
 import package_info_plus
 import record_macos
 import screen_retriever_macos
@@ -30,6 +31,7 @@ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   FlutterSecureStorageDarwinPlugin.register(with: registry.registrar(forPlugin: "FlutterSecureStorageDarwinPlugin"))
   HotkeyManagerMacosPlugin.register(with: registry.registrar(forPlugin: "HotkeyManagerMacosPlugin"))
   MobileScannerPlugin.register(with: registry.registrar(forPlugin: "MobileScannerPlugin"))
+  NativeAdaptiveToolboxPlugin.register(with: registry.registrar(forPlugin: "NativeAdaptiveToolboxPlugin"))
   FPPPackageInfoPlusPlugin.register(with: registry.registrar(forPlugin: "FPPPackageInfoPlusPlugin"))
   RecordMacOsPlugin.register(with: registry.registrar(forPlugin: "RecordMacOsPlugin"))
   ScreenRetrieverMacosPlugin.register(with: registry.registrar(forPlugin: "ScreenRetrieverMacosPlugin"))

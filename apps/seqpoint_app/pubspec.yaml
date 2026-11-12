@@ -1,7 +1,7 @@
 name: seqpoint_app
 description: 序点 SeqPoint —— 让每件事，都有顺序。
 publish_to: none
-version: 0.2.5+7
+version: 0.2.6+8
 
 environment:
   sdk: ^3.13.0
@@ -15,12 +15,15 @@ dependencies:
   file_picker: ^11.0.3
   flutter:
     sdk: flutter
+  flutter_localizations:
+    sdk: flutter
   flutter_local_notifications: ^22.3.0
   flutter_local_notifications_windows: ^3.1.1
   flutter_secure_storage: ^10.3.1
   home_widget: ^0.9.4
   hotkey_manager: ^0.2.3
   launch_at_startup: ^0.5.1
+  live_markdown_editor: 0.11.0
   path_provider: ^2.1.6
   quick_actions: ^1.1.0
   record: ^7.1.2

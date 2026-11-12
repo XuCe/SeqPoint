@@ -1,5 +1,6 @@
 import '../util/clock.dart';
 import 'enums.dart';
+import 'item.dart';
 
 /// 桌面便签窗的位置与大小，仅桌面端使用。
 class NoteWindow {
@@ -66,6 +67,27 @@ class Note {
   /// 按行拆分原始内容，供"行转事项"与 AI 整理使用。
   List<String> get lines => rawContent.split('\n');
 
+  static final _prefix = RegExp(r'^(?:#{1,6}\s+|>\s+|(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?)');
+  static final _emphasis = RegExp(r'(\*{1,3}|__|~~|\x60)(?=\S)(.+?)\1');
+  static final _link = RegExp(r'\[([^\]\n]+)\]\(https?://[^\s()]+\)');
+
+  static String lineBody(String line) => line.trim().replaceFirst(_prefix, '').trim();
+
+  static String lineTitle(String line) =>
+      lineBody(line).replaceAllMapped(_link, (match) => match[1]!)
+          .replaceAllMapped(_emphasis, (match) => match[2]!);
+
+  static Map<int, Item> itemsByLine(List<String> lines, Iterable<Item> items) {
+    final result = <int, Item>{};
+    for (final item in items) {
+      final index = item.lineIndex;
+      if (index == null || index < 0 || index >= lines.length) continue;
+      final line = lines[index].trim();
+      if (line == item.title || lineTitle(line) == item.title) result[index] = item;
+    }
+    return result;
+  }
+
   Note copyWith({
     NoteKind? kind,
     NoteStatus? status,
@@ -79,6 +101,7 @@ class Note {
     DateTime? deletedAt,
     String? hlc,
     bool clearClosedAt = false,
+    bool clearTitle = false,
     bool clearDeletedAt = false,
   }) =>
       Note(
@@ -86,7 +109,7 @@ class Note {
         kind: kind ?? this.kind,
         status: status ?? this.status,
         rawContent: rawContent ?? this.rawContent,
-        title: title ?? this.title,
+        title: clearTitle ? null : title ?? this.title,
         color: color ?? this.color,
         pinned: pinned ?? this.pinned,
         window: window ?? this.window,

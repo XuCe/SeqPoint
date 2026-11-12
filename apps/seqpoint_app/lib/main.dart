@@ -10,6 +10,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import 'app/seq_app.dart';
 import 'platform/desktop_windows.dart';
+import 'platform/note_window_geometry.dart';
 import 'platform/desktop_hotkeys.dart';
 import 'platform/desktop_tray.dart';
 import 'platform/desktop_notifications.dart';
@@ -28,27 +29,36 @@ Future<void> main(List<String> args) async {
 
   if (Platform.isMacOS || Platform.isWindows) {
     final current = await WindowController.fromCurrentEngine();
-    final noteId = await StickyWindowSetup.apply(current.arguments);
-    if (noteId != null) {
-      await current.setWindowMethodHandler((call) async {
+    final sticky = StickyWindowSetup.prepare(current.arguments);
+    if (sticky != null) {
+      final windows = DesktopWindowService(childWindow: sticky.hosted);
+      final geometry = NoteWindowGeometry(windows, noteId: sticky.noteId);
+      var ready = false;
+      final handler = current.setWindowMethodHandler((call) async {
+        if (call.method == 'activate') {
+          if (ready) await _showSticky();
+          return;
+        }
         if (call.method != 'close_self') throw UnsupportedError(call.method);
-        await windowManager.close();
+        await geometry.close();
       });
       runApp(
         SeqApp.sticky(
-          noteId: noteId,
+          noteId: sticky.noteId,
           title: '便签',
-          windows: DesktopWindowService(),
-          onClose: () => windowManager.close(),
+          windows: windows,
+          onClose: geometry.close,
         ),
       );
-      WidgetsBinding.instance.addPostFrameCallback((_) async {
-        await windowManager.show();
-        await windowManager.focus();
-      });
+      await Future.wait([handler, sticky.placed, WidgetsBinding.instance.waitUntilFirstFrameRasterized]);
+      windowManager.addListener(geometry);
+      ready = true;
+      await _showSticky();
     } else {
+      final windows = DesktopWindowService();
+      await windows.listenForStickyWindows();
       await _runMainApp(
-          windows: DesktopWindowService(),
+          windows: windows,
           hotkeys: DesktopHotkeyService(isWindows: Platform.isWindows),
           tray: DesktopTrayService(),
       );
@@ -57,6 +67,11 @@ Future<void> main(List<String> args) async {
   }
 
   await _runMainApp();
+}
+
+Future<void> _showSticky() async {
+  await windowManager.show();
+  await windowManager.focus();
 }
 
 Future<void> _runMainApp({WindowService? windows, HotkeyService? hotkeys,

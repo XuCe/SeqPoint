@@ -2,8 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:seqpoint_core/seqpoint_core.dart';
 
 import '../app/app_scope.dart';
-import '../shared/item_tile.dart';
-import '../shared/item_editor_page.dart';
+import '../desktop/panel/items_view.dart';
 import '../shared/note_card.dart';
 import '../shared/note_search.dart';
 import '../theme/seq_tokens.dart';
@@ -20,7 +19,6 @@ class NoteWallPage extends StatefulWidget {
 class _NoteWallPageState extends State<NoteWallPage> {
   int _view = 0;
   late NoteWallSnapshot _notes;
-  List<Item> _items = const [];
 
   Future<void> _search() async {
     await openNoteSearch(context);
@@ -39,8 +37,6 @@ class _NoteWallPageState extends State<NoteWallPage> {
       _view = view ?? _view;
       if (_view == 0) {
         _notes = scope.notes.activeWithProgress();
-      } else {
-        _items = scope.items.openAll();
       }
     });
   }
@@ -81,7 +77,10 @@ class _NoteWallPageState extends State<NoteWallPage> {
               ],
             ),
           ),
-          Expanded(child: _view == 0 ? _buildWall() : _buildItems()),
+          Expanded(child: _view == 0 ? _buildWall() : ItemsView(
+            padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
+            onChanged: _reload,
+          )),
         ],
       ),
     );
@@ -110,29 +109,6 @@ class _NoteWallPageState extends State<NoteWallPage> {
     );
   }
 
-  Widget _buildItems() {
-    if (_items.isEmpty) return const _Empty(text: '没有待办事项。');
-    return ListView.builder(
-      padding: const EdgeInsets.fromLTRB(20, 4, 20, 24),
-      itemCount: _items.length,
-      itemBuilder: (context, i) {
-        final item = _items[i];
-        return ItemTile(
-          item: item,
-          onTap: () async {
-            if (await ItemEditorPage.open(context, item.id) == true &&
-                mounted) {
-              _reload();
-            }
-          },
-          onToggle: () {
-            AppScope.of(context).noteService.toggleItem(item.id);
-            _reload();
-          },
-        );
-      },
-    );
-  }
 }
 
 class _Empty extends StatelessWidget {

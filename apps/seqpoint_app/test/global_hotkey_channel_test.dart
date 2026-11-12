@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'note_editor_test_support.dart';
 import 'package:seqpoint_app/app/bootstrap.dart';
 import 'package:seqpoint_app/platform/desktop_hotkeys.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
@@ -42,7 +43,7 @@ void main() {
         'type': 'onKeyDown', 'data': {'identifier': id},
       }), (_) {});
     await tester.pumpAndSettle();
-    expect(find.byType(TextField), findsOneWidget);
+    expect(noteField, findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
     expect(calls.where((c) => c.method == 'unregisterAll'), hasLength(1));

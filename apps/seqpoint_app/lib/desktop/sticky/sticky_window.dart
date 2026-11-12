@@ -137,14 +137,7 @@ class _StickyWindowState extends State<StickyWindow> with WindowListener {
   }
 
   /// 行号 → 事项，用于把勾选状态回显到便签正文那一行。
-  Map<int, Item> _itemsByLine(List<String> lines) => {
-    for (final i in _items)
-      if (i.lineIndex != null &&
-          i.lineIndex! >= 0 &&
-          i.lineIndex! < lines.length &&
-          lines[i.lineIndex!].trim() == i.title)
-        i.lineIndex!: i,
-  };
+  Map<int, Item> _itemsByLine(List<String> lines) => Note.itemsByLine(lines, _items);
 
   void _toggle(Item item) {
     AppScope.of(context).noteService.toggleItem(item.id);
@@ -240,7 +233,7 @@ class _StickyWindowState extends State<StickyWindow> with WindowListener {
                   onFocusChange: (focused) {
                     if (focused) _currentRow = index;
                   },
-                  text: extra ? item!.title : lines[index],
+                  text: item?.title ?? lines[index],
                   isItem: item != null,
                   isDone: item?.isDone ?? false,
                   onToggle: item == null

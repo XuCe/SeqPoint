@@ -14,7 +14,7 @@ class NoteWallView extends StatefulWidget {
 
 class _NoteWallViewState extends State<NoteWallView> {
   late NoteWallSnapshot _notes;
-  bool _opening = false;
+  final _opening = <String>{};
 
   @override
   void didChangeDependencies() {
@@ -27,8 +27,7 @@ class _NoteWallViewState extends State<NoteWallView> {
 
   Future<void> _open(Note note) async {
     final windows = AppScope.of(context).windows;
-    if (windows == null || _opening) return;
-    _opening = true;
+    if (windows == null || !_opening.add(note.id)) return;
     try {
       await windows.openSticky(note.id);
     } catch (_) {
@@ -36,7 +35,7 @@ class _NoteWallViewState extends State<NoteWallView> {
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('打开便签失败，请重试。已保存的内容仍在。')));
     } finally {
-      _opening = false;
+      _opening.remove(note.id);
     }
   }
 

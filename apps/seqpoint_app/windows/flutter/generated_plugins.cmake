@@ -8,6 +8,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   desktop_multi_window
   flutter_secure_storage_windows
   hotkey_manager_windows
+  native_adaptive_toolbox
   record_windows
   screen_retriever_windows
   speech_to_text_windows

@@ -1,51 +1,69 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:live_markdown_editor/live_markdown_editor.dart';
+import 'package:seqpoint_core/seqpoint_core.dart';
 
 import '../app/app_scope.dart';
 import '../features/voice/voice_input_button.dart';
+import '../shared/note_markdown_field.dart';
+import '../shared/note_title_field.dart';
+import '../shared/note_format_menu.dart';
 import '../theme/seq_tokens.dart';
 
 /// 快速记录页：打开即聚焦输入框，3 秒内可保存。
 ///
 /// 零属性保存——不要求标题、标签或时间。这是产品的第一原则。
 class QuickCapturePage extends StatefulWidget {
-  const QuickCapturePage({super.key, this.initialText = ''});
+  const QuickCapturePage({super.key, this.initialText = '', this.note});
   final String initialText;
+  final Note? note;
 
   @override
   State<QuickCapturePage> createState() => _QuickCapturePageState();
 }
 
 class _QuickCapturePageState extends State<QuickCapturePage> {
-  final _controller = TextEditingController();
-  final _focus = FocusNode();
+  final _controller = MarkdownEditorController();
+  final _title = TextEditingController();
 
   @override
   void initState() {
     super.initState();
-    _controller.text = widget.initialText;
-    // 打开即聚焦，键盘立刻弹出。
-    WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+    _controller.text = widget.note?.rawContent ?? widget.initialText;
+    _title.text = widget.note?.title ?? '';
   }
 
   @override
   void dispose() {
     _controller.dispose();
-    _focus.dispose();
+    _title.dispose();
     super.dispose();
   }
 
-  void _save() {
-    final text = _controller.text.trim();
-    if (text.isEmpty) {
+  void _save({String? content, int? line, DateTime? due}) {
+    if (AppScope.of(context).restoring) return;
+    final text = content ?? _controller.text;
+    final note = widget.note;
+    final title = _title.text.trim() == (note?.title ?? '') ? null : _title.text.trim();
+    if (text.trim().isEmpty && _title.text.trim().isEmpty) {
       Navigator.of(context).pop(false);
       return;
     }
     try {
-      AppScope.of(context).noteService.capture(text);
-    } catch (_) {
+      final service = AppScope.of(context).noteService;
+      if (line != null) {
+        service.saveWithItem(text, lineIndex: line, due: due, noteId: note?.id,
+            title: title, expectedContent: note?.rawContent, expectedTitle: note?.title);
+      } else if (note != null) {
+        service.editContent(note.id, text, title: title,
+            expectedContent: note.rawContent, expectedTitle: note.title);
+      } else {
+        service.capture(text, title: title);
+      }
+    } catch (error) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('保存失败，请重试。输入的内容仍在。')),
+        SnackBar(content: Text(error is StateError && (line != null || note != null)
+            ? error.message : '保存失败，请重试。输入的内容仍在。')),
       );
       return;
     }
@@ -69,8 +87,9 @@ class _QuickCapturePageState extends State<QuickCapturePage> {
           onPressed: () => Navigator.of(context).pop(false),
           tooltip: '放弃',
         ),
-        title: const Text('记一笔'),
+        title: Text(widget.note == null ? '记一笔' : '编辑便签'),
         actions: [
+          NoteFormatMenu(controller: _controller, onPromote: (line) => _save(line: line)),
           VoiceInputButton(controller: _controller, enabled: !AppScope.of(context).restoring),
           TextButton(
             onPressed: _save,
@@ -81,24 +100,11 @@ class _QuickCapturePageState extends State<QuickCapturePage> {
       ),
       body: Padding(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 20),
-        child: TextField(
-          controller: _controller,
-          focusNode: _focus,
-          maxLines: null,
-          expands: true,
-          autofocus: true,
-          textCapitalization: TextCapitalization.sentences,
-          keyboardType: TextInputType.multiline,
-          textInputAction: TextInputAction.newline,
-          style: const TextStyle(
-              fontSize: 16, height: 1.6, color: SeqTokens.noteInk),
-          decoration: const InputDecoration(
-            border: InputBorder.none,
-            hintText: '想到什么就写什么，一行一件事\n之后可以让 AI 帮你整理',
-            hintStyle: TextStyle(color: Color(0xFF9C8A50), height: 1.6),
-          ),
-          onSubmitted: (_) => _save(),
-        ),
+        child: Column(children: [
+          NoteTitleField(controller: _title),
+          Expanded(child: NoteMarkdownField(controller: _controller,
+              onSaveItem: (text, line, due) => _save(content: text, line: line, due: due))),
+        ]),
       ),
       ),
     );

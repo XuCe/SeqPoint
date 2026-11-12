@@ -400,6 +400,91 @@ void main() {
   }
 
   for (final mobile in [false, true]) {
+    testWidgets('${mobile ? '移动' : '桌面'}全部事项切换三种状态时保留标题关键词', (tester) async {
+      if (mobile) {
+        await tester.binding.setSurfaceSize(const Size(360, 640));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+      }
+      final boot = await Bootstrap.run(dbPath: ':memory:');
+      addTearDown(boot.dispose);
+      final note = boot.noteService.capture('交付 API 报告\n整理 api 示例\n买牛奶');
+      final pending = boot.noteService.lineToItem(note.id, 0);
+      final done = boot.noteService.lineToItem(note.id, 1);
+      final other = boot.noteService.lineToItem(note.id, 2);
+      boot.noteService.toggleItem(done.id);
+      await tester.pumpWidget(_app(boot,
+          mobile ? const Scaffold(body: NoteWallPage()) : const MainPanel()));
+      await tester.tap(find.text('全部事项'));
+      await tester.pumpAndSettle();
+      expect(find.text(other.title), findsOneWidget);
+      expect(find.text(done.title), findsNothing);
+
+      final field = find.byType(TextField);
+      await tester.enterText(field, ' Api ');
+      await tester.pumpAndSettle();
+      expect(find.text(pending.title), findsOneWidget);
+      expect(find.text(other.title), findsNothing);
+      await tester.tap(find.text('已完成'));
+      await tester.pumpAndSettle();
+      if (!mobile) {
+        (tester.state(find.byType(MainPanel)) as WindowListener).onWindowFocus();
+        await tester.pumpAndSettle();
+      }
+      expect(find.text(done.title), findsOneWidget);
+      expect(find.text(pending.title), findsNothing);
+      expect(find.text(other.title), findsNothing);
+      expect(tester.widget<TextField>(field).controller!.text, ' Api ');
+      await tester.tap(find.text('待办'));
+      await tester.pumpAndSettle();
+      expect(find.text(pending.title), findsOneWidget);
+      expect(find.text(done.title), findsNothing);
+      expect(tester.widget<TextField>(field).controller!.text, ' Api ');
+      await tester.tap(find.text('全部'));
+      await tester.pumpAndSettle();
+      expect(find.text(pending.title), findsOneWidget);
+      expect(find.text(done.title), findsOneWidget);
+      expect(find.text(other.title), findsNothing);
+      expect(tester.widget<TextField>(field).controller!.text, ' Api ');
+      await tester.tap(find.text(done.title));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+      expect(find.text(done.title), findsNothing);
+      expect(find.text(pending.title), findsOneWidget);
+      await tester.tap(find.text('待办'));
+      await tester.enterText(field, '不存在');
+      await tester.pumpAndSettle();
+      expect(find.byType(ItemTile), findsNothing);
+      await tester.enterText(field, '');
+      await tester.pumpAndSettle();
+      expect(find.text(other.title), findsOneWidget);
+    });
+
+    testWidgets('${mobile ? '移动' : '桌面'}编辑时点击删除只移除当前事项', (tester) async {
+      final boot = await Bootstrap.run(dbPath: ':memory:');
+      addTearDown(boot.dispose);
+      final note = boot.noteService.capture('今天交报告\n今天取快递');
+      final removed = boot.noteService.lineToItem(note.id, 0);
+      final kept = boot.noteService.lineToItem(note.id, 1);
+      await tester.pumpWidget(_app(
+        boot,
+        Scaffold(body: mobile ? const TodayPage() : const TodayView()),
+      ));
+      final target = find.widgetWithText(ItemTile, removed.title);
+      await tester.ensureVisible(target);
+      await tester.tap(target);
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextFormField), '');
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ItemEditorPage), findsNothing);
+      expect(find.text(removed.title), findsNothing);
+      expect(find.widgetWithText(ItemTile, kept.title), findsOneWidget);
+      expect(boot.items.byId(removed.id)!.deletedAt, isNotNull);
+      expect(boot.notes.byId(note.id)!.rawContent, note.rawContent);
+    });
+
     testWidgets('${mobile ? '移动' : '桌面'}今日不显示软删除的已完成事项', (tester) async {
       final boot = await Bootstrap.run(dbPath: ':memory:');
       addTearDown(boot.dispose);

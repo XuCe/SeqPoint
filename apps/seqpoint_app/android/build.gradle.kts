@@ -17,9 +17,9 @@ subprojects {
 }
 subprojects {
     project.evaluationDependsOn(":app")
-    // shortcut: file_picker 11.x误判AGP9内置Kotlin；升级兼容版本后移除此段。
+    // Both plugins ship Kotlin sources and assume AGP 9 built-in Kotlin is enabled.
     // https://github.com/vicajilau/flutter_file_picker/issues/2200
-    if (name == "file_picker") {
+    if (name == "file_picker" || name == "native_adaptive_toolbox") {
         apply(plugin = "org.jetbrains.kotlin.android")
         tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
             compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)

@@ -256,7 +256,7 @@ void main() {
       for (final success in [false, true]) {
         testWidgets('$platform $format系统保存结果=$success且清理应用副本', (tester) async {
           selected = success ? '${dir.path}/selected-target' : null;
-          final old = File('${dir.path}/old.json')..writeAsStringSync('旧导出保留');
+          final old = File.fromUri(dir.uri.resolve('old.json'))..writeAsStringSync('旧导出保留');
           await show(tester);
           await export(tester, format);
           expect(saved, isNotNull);
@@ -275,7 +275,7 @@ void main() {
 
   testWidgets('iOS原生保存抛错也清理副本并保留旧文件', (tester) async {
     saveFails = true;
-    final old = File('${dir.path}/old.json')..writeAsStringSync('保留旧文件');
+    final old = File.fromUri(dir.uri.resolve('old.json'))..writeAsStringSync('保留旧文件');
     await show(tester);
     await export(tester, 'JSON');
     expect(find.textContaining('导出失败：'), findsOneWidget);

@@ -66,6 +66,7 @@ class Item {
   Item copyWith({
     String? noteId,
     int? lineIndex,
+    bool clearLineIndex = false,
     String? title,
     ItemStatus? status,
     Priority? priority,
@@ -83,7 +84,7 @@ class Item {
       Item(
         id: id,
         noteId: noteId ?? this.noteId,
-        lineIndex: lineIndex ?? this.lineIndex,
+        lineIndex: clearLineIndex ? null : (lineIndex ?? this.lineIndex),
         title: title ?? this.title,
         status: status ?? this.status,
         priority: priority ?? this.priority,

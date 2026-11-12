@@ -11,6 +11,7 @@
 #include <desktop_multi_window/desktop_multi_window_plugin.h>
 #include <flutter_secure_storage_windows/flutter_secure_storage_windows_plugin.h>
 #include <hotkey_manager_windows/hotkey_manager_windows_plugin_c_api.h>
+#include <native_adaptive_toolbox/native_adaptive_toolbox_plugin.h>
 #include <record_windows/record_windows_plugin_c_api.h>
 #include <screen_retriever_windows/screen_retriever_windows_plugin_c_api.h>
 #include <speech_to_text_windows/speech_to_text_windows.h>
@@ -28,6 +29,8 @@ void RegisterPlugins(flutter::PluginRegistry* registry) {
       registry->GetRegistrarForPlugin("FlutterSecureStorageWindowsPlugin"));
   HotkeyManagerWindowsPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("HotkeyManagerWindowsPluginCApi"));
+  NativeAdaptiveToolboxPluginRegisterWithRegistrar(
+      registry->GetRegistrarForPlugin("NativeAdaptiveToolboxPlugin"));
   RecordWindowsPluginCApiRegisterWithRegistrar(
       registry->GetRegistrarForPlugin("RecordWindowsPluginCApi"));
   ScreenRetrieverWindowsPluginCApiRegisterWithRegistrar(

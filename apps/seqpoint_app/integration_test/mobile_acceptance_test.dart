@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import '../test/note_editor_test_support.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:seqpoint_app/app/app_scope.dart';
@@ -178,7 +179,7 @@ void main() {
     await tester.tap(find.byTooltip('记一笔')); await tester.pumpAndSettle();
     await tester.tap(find.text('快速记录')); await tester.pumpAndSettle();
     const text = 'SeqPoint integration fixture';
-    await tester.enterText(find.byType(TextField), text); await tester.pump();
+    await typeNote(tester, text); await tester.pump();
     await tester.tap(find.text('保存')); await tester.pumpAndSettle();
     final note = scope.notes.active().single; ownId = note.id;
     expect(note.rawContent, text);

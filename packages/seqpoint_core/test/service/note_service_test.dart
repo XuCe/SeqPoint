@@ -20,6 +20,102 @@ void main() {
 
   tearDown(() => db.close());
 
+  test('标题可独立保存、改名或清空，过期草稿不能覆盖其他窗口的标题', () {
+    final note = service.saveWithItem('清单', title: ' 周末 ', lineIndex: 0);
+    expect(note.title, '周末');
+    service.editContent(note.id, '清单', title: '采购', expectedTitle: '周末');
+    expect(service.editContent(note.id, '买菜').title, '采购');
+    expect(() => service.editContent(note.id, '草稿', title: '清单二', expectedTitle: '周末'),
+        throwsStateError);
+    expect(service.editContent(note.id, '买菜', title: ' ', expectedTitle: '采购').title, isNull);
+    expect(NoteRepository(db).byId(note.id)!.title, isNull);
+  });
+
+  test('给绑定行添加勾选前缀、链接和强调仍保留原事项', () {
+    final note = service.capture('联系供应商');
+    final original = service.lineToItem(note.id, 0);
+    final edited = service.editContent(note.id, '- [ ] 联系[*供应商*](https://example.org/)');
+    final item = Note.itemsByLine(edited.lines, ItemRepository(db).byNote(note.id))[0];
+    expect(item?.id, original.id);
+    expect(item?.title, '联系供应商');
+  });
+
+  test('旧草稿不能在普通保存或设提醒时覆盖另一窗口已勾选的正文', () {
+    final note = service.capture('- [ ] 买茶\n备注');
+    final id = service.lineToItem(note.id, 0).id;
+    service.toggleItem(id);
+    final draft = note.rawContent.replaceFirst('备注', '采购备注');
+    expect(() => service.editContent(note.id, draft, expectedContent: note.rawContent), throwsStateError);
+    expect(() => service.saveWithItem(draft, noteId: note.id, lineIndex: 1,
+        due: DateTime(2026, 11, 20), expectedContent: note.rawContent), throwsStateError);
+    expect(NoteRepository(db).byId(note.id)!.rawContent, '- [x] 买茶\n备注');
+    expect(ItemRepository(db).byNote(note.id).single.status, ItemStatus.done);
+  });
+
+  test('勾选旧版本保留 Markdown 前缀的事项后仍绑定原行', () {
+    final repo = ItemRepository(db);
+    final note = service.capture('- [ ] 买茶');
+    final old = service.lineToItem(note.id, 0).copyWith(title: note.rawContent);
+    repo.update(old);
+    service.toggleItem(old.id);
+    expect(Note.itemsByLine(NoteRepository(db).byId(note.id)!.lines, repo.byNote(note.id))[0]?.id, old.id);
+  });
+
+  test('正文与行提醒一起提交，重设时间复用同一事项', () {
+    final at = DateTime(2026, 11, 12, 15);
+    final note = service.saveWithItem('买茶\n回电话', lineIndex: 1, due: at);
+    final first = ItemRepository(db).byNote(note.id).single;
+    service.saveWithItem('购物\n买茶\n**回电话**', noteId: note.id,
+        lineIndex: 2, due: at.add(const Duration(days: 1)));
+    final item = ItemRepository(db).byNote(note.id).single;
+    expect(item.id, first.id);
+    expect(item.lineIndex, 2);
+    expect(item.dueAt!.toLocal(), at.add(const Duration(days: 1)));
+  });
+
+  test('无效目标或已完成事项不能设提醒，失败后回滚正文', () {
+    final at = DateTime(2026, 11, 12, 15);
+    expect(() => service.saveWithItem('买茶', lineIndex: 2, due: at), throwsRangeError);
+    expect(db.raw.select('SELECT id FROM notes'), isEmpty);
+    final note = service.capture('买茶');
+    service.toggleItem(service.lineToItem(note.id, 0).id);
+    expect(() => service.saveWithItem('一\n买茶', noteId: note.id, lineIndex: 1, due: at), throwsStateError);
+    expect(NoteRepository(db).byId(note.id)!.rawContent, '买茶');
+  });
+
+  test('已升级清单通过正文和事项两边操作同一个完成状态', () {
+    final note = service.capture('- [ ] 买菜');
+    final item = service.lineToItem(note.id, 0);
+    expect(item.title, '买菜');
+    service.toggleItem(item.id);
+    expect(NoteRepository(db).byId(note.id)!.rawContent, '- [x] 买菜');
+    service.editContent(note.id, '- [ ] 买菜');
+    expect(ItemRepository(db).byId(item.id)!.status, ItemStatus.todo);
+  });
+
+  test('插入行并加粗后已有事项保持位置、期限、完成状态和 ID', () {
+    final repo = ItemRepository(db);
+    final note = service.capture('采购\n明天买牛奶');
+    final original = service.lineToItem(note.id, 1);
+    service.toggleItem(original.id);
+    service.editContent(note.id, '新增\n采购\n**明天买牛奶**');
+    final item = repo.byNote(note.id).single;
+    expect(item.id, original.id);
+    expect(item.lineIndex, 2);
+    expect(item.dueAt, original.dueAt);
+    expect(item.title, original.title);
+    expect(item.status, ItemStatus.done);
+  });
+
+  test('删除与替换原行后保留独立事项，出现同名行也不重绑', () {
+    final repo = ItemRepository(db);
+    final note = service.capture('采购\n汇报');
+    final item = service.lineToItem(note.id, 0);
+    service.editContent(note.id, '另一件事\n汇报');
+    service.editContent(note.id, '采购\n汇报');
+    expect(repo.byId(item.id)!.lineIndex, isNull);
+  });
+
   for (final (title, due) in [
     ('下周一提交报告', DateTime(2026, 9, 7, 9)),
     ('今晚八点开会', DateTime(2026, 9, 5, 20)),

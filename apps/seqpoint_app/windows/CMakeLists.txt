@@ -57,6 +57,30 @@ add_subdirectory("runner")
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# Each sticky has its own engine. Skia avoids repeating Impeller's startup
+# work for every note. desktop_multi_window 0.3.1 has no renderer option.
+get_target_property(sticky_plugin_dir desktop_multi_window_plugin SOURCE_DIR)
+get_target_property(sticky_sources desktop_multi_window_plugin SOURCES)
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${sticky_plugin_dir}/flutter_window.cc")
+file(READ "${sticky_plugin_dir}/flutter_window.cc" sticky_source)
+string(REPLACE "project.set_dart_entrypoint_arguments("
+  "project.set_impeller_switch(flutter::ImpellerSwitch::Disabled);\n  project.set_dart_entrypoint_arguments("
+  sticky_source "${sticky_source}")
+file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/sticky_flutter_window.cc" CONTENT "${sticky_source}")
+list(REMOVE_ITEM sticky_sources "flutter_window.cc")
+list(APPEND sticky_sources "${CMAKE_CURRENT_BINARY_DIR}/sticky_flutter_window.cc")
+set_property(TARGET desktop_multi_window_plugin PROPERTY SOURCES "${sticky_sources}")
+target_include_directories(desktop_multi_window_plugin PRIVATE "${sticky_plugin_dir}")
+
+# native_adaptive_toolbox 0.1.0 lacks Flutter's Windows C registration ABI.
+# Use the app's per-engine Win32 implementation of its selection-menu channel.
+set_target_properties(native_adaptive_toolbox_plugin PROPERTIES SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/compat/native_adaptive_toolbox.cpp")
+target_include_directories(native_adaptive_toolbox_plugin PUBLIC
+  "${CMAKE_CURRENT_SOURCE_DIR}/compat/include")
+target_compile_features(native_adaptive_toolbox_plugin PRIVATE cxx_std_17)
+target_link_libraries(native_adaptive_toolbox_plugin PRIVATE flutter_wrapper_plugin)
+
 
 # === Installation ===
 # Support files are copied into place next to the executable, so that it can

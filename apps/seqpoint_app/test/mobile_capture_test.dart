@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'note_editor_test_support.dart';
 import 'package:seqpoint_app/app/app_scope.dart';
 import 'package:seqpoint_app/app/bootstrap.dart';
 import 'package:seqpoint_app/mobile/mobile_shell.dart';
@@ -14,6 +15,8 @@ Widget _app(Bootstrap b) => MaterialApp(
   home: const MobileShell());
 
 void main() {
+  String draft(WidgetTester t) =>
+      noteEditor(t).controller.text;
   for (final modifier in [LogicalKeyboardKey.controlLeft, LogicalKeyboardKey.metaLeft]) {
     testWidgets('${modifier.keyLabel}+Enter保存快速记录，普通回车不保存', (t) async {
       final b = await Bootstrap.run(dbPath: ':memory:');
@@ -23,7 +26,7 @@ void main() {
       await t.pumpAndSettle();
       await t.tap(find.text('快速记录'));
       await t.pumpAndSettle();
-      await t.enterText(find.byType(TextField), '键盘快速记录');
+      await typeNote(t, '键盘快速记录');
       await t.sendKeyEvent(LogicalKeyboardKey.enter);
       await t.pump();
       expect(b.notes.active(), isEmpty);
@@ -34,7 +37,7 @@ void main() {
       await t.sendKeyUpEvent(modifier);
       await t.pumpAndSettle();
       expect(b.notes.active(), hasLength(1));
-      expect(b.notes.active().single.rawContent, '键盘快速记录');
+      expect(b.notes.active().single.rawContent, '键盘快速记录\n');
       expect(find.byType(NoteWallPage), findsOneWidget);
     });
   }
@@ -46,11 +49,11 @@ void main() {
     t.state<NavigatorState>(find.byType(Navigator)).push<bool>(MaterialPageRoute(
         builder: (_) => const QuickCapturePage(initialText: '明天下午开会，带上报告')));
     await t.pumpAndSettle();
-    expect(t.widget<TextField>(find.byType(TextField)).controller!.text, '明天下午开会，带上报告');
+    expect(draft(t), '明天下午开会，带上报告');
     await t.tap(find.text('保存'));
     await t.pump();
     expect(find.text('保存失败，请重试。输入的内容仍在。'), findsOneWidget);
-    expect(t.widget<TextField>(find.byType(TextField)).controller!.text, '明天下午开会，带上报告');
+    expect(draft(t), '明天下午开会，带上报告');
     expect(b.notes.active(), isEmpty);
     b.db.raw.execute('DROP TRIGGER voice_save');
     await t.tap(find.text('保存'));
@@ -73,7 +76,8 @@ void main() {
       await t.pumpAndSettle();
       await t.tap(find.text('快速记录'));
       await t.pumpAndSettle();
-      await t.enterText(find.byType(TextField), '移动新便签');
+      await typeNote(t, '移动新便签');
+      await t.enterText(find.widgetWithText(TextField, '标题（选填）'), '出差安排');
       await t.tap(find.text('保存'));
       await t.pumpAndSettle();
       final created = b.notes.active().singleWhere((n) => n.id != old.id);
@@ -83,6 +87,16 @@ void main() {
         unorderedEquals([old.id, created.id]));
       expect(find.text('移动新便签'), findsWidgets);
       expect(created.rawContent, '移动新便签');
+      expect(created.title, '出差安排');
+      await t.tap(find.text('出差安排'));
+      await t.pumpAndSettle();
+      await t.tap(find.byTooltip('编辑便签'));
+      await t.pumpAndSettle();
+      await t.enterText(find.widgetWithText(TextField, '标题（选填）'), '返程');
+      await t.tap(find.text('保存'));
+      await t.pumpAndSettle();
+      expect(find.text('返程'), findsOneWidget);
+      expect(b.notes.byId(created.id)!.title, '返程');
       expect(b.notes.active(), hasLength(2));
     });
   }
@@ -102,7 +116,7 @@ void main() {
       } else {
         await t.tap(find.text('快速记录'));
         await t.pumpAndSettle();
-        await t.enterText(find.byType(TextField),
+        await typeNote(t,
           action == '空白保存' ? ' \n ' : '取消不应保存');
         if (action == '系统返回') {
           await t.binding.handlePopRoute();
@@ -111,7 +125,7 @@ void main() {
         }
       }
       await t.pumpAndSettle();
-      expect(find.byType(TextField), findsNothing);
+      expect(noteField, findsNothing);
       expect(t.widget<NoteCard>(find.byType(NoteCard)).note.id, old.id);
       expect(b.notes.active().single.id, old.id);
       expect(b.db.raw.select('SELECT id FROM activities'), hasLength(1));
@@ -129,12 +143,12 @@ void main() {
       await t.pumpAndSettle();
       await t.tap(find.text('快速记录'));
       await t.pumpAndSettle();
-      await t.enterText(find.byType(TextField), '失败后重试便签');
+      await typeNote(t, '失败后重试便签');
       await t.tap(find.text('保存'));
       await t.pump();
       expect(t.takeException(), isNull);
       expect(find.text('保存失败，请重试。输入的内容仍在。'), findsOneWidget);
-      expect(t.widget<TextField>(find.byType(TextField)).controller!.text,
+      expect(draft(t),
         '失败后重试便签');
       expect(b.notes.active(), isEmpty);
       expect(b.db.raw.select('SELECT id FROM activities'), isEmpty);

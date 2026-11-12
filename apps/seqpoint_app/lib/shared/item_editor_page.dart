@@ -62,6 +62,7 @@ class _ItemEditorPageState extends State<ItemEditorPage> {
   Future<void> _pickDate() async {
     final date = await showDatePicker(
       context: context,
+      fieldHintText: '年/月/日',
       initialEntryMode: MediaQuery.sizeOf(context).height < 500
           ? DatePickerEntryMode.inputOnly
           : DatePickerEntryMode.calendar,
@@ -99,6 +100,16 @@ class _ItemEditorPageState extends State<ItemEditorPage> {
     );
   }
 
+  void _delete() {
+    try {
+      AppScope.of(context).items.softDelete(widget.itemId);
+      Navigator.of(context).pop(true);
+    } catch (_) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('删除失败，请重试')));
+    }
+  }
+
   void _save() {
     if (!_title.value.composing.isCollapsed) {
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
@@ -126,7 +137,14 @@ class _ItemEditorPageState extends State<ItemEditorPage> {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       title: const Text('编辑事项'),
-      actions: [TextButton(onPressed: _save, child: const Text('保存'))],
+      actions: [
+        TextButton(
+          onPressed: _delete,
+          style: TextButton.styleFrom(foregroundColor: Theme.of(context).colorScheme.error),
+          child: const Text('删除'),
+        ),
+        TextButton(onPressed: _save, child: const Text('保存')),
+      ],
     ),
     body: Form(
       key: _form,

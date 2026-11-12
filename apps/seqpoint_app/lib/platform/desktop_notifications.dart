@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
@@ -25,7 +25,7 @@ class DesktopNotificationService implements NotificationService {
   final _itemOfId = <int, String>{};
   bool _launchRead = false;
 
-  bool get _isWindows => Platform.isWindows;
+  bool get _isWindows => defaultTargetPlatform == TargetPlatform.windows;
 
   @override
   Stream<({String itemId, NotificationAction action})> get responses =>

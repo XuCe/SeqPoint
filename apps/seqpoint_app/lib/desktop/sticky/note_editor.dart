@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:live_markdown_editor/live_markdown_editor.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../app/app_scope.dart';
+import '../../platform/note_window_geometry.dart';
+import '../../shared/note_markdown_field.dart';
+import '../../shared/note_title_field.dart';
+import '../../shared/note_format_menu.dart';
 import 'note_media_bar.dart';
 import '../../features/voice/voice_input_button.dart';
 import '../../theme/seq_tokens.dart';
@@ -25,8 +30,13 @@ class NoteEditor extends StatefulWidget {
 }
 
 class _NoteEditorState extends State<NoteEditor> {
-  final _controller = TextEditingController();
+  final _controller = MarkdownEditorController();
+  final _title = TextEditingController();
+  String? _openedTitle;
+  String? get _changedTitle => _title.text.trim() == (_openedTitle ?? '') ? null : _title.text.trim();
+  NoteWindowGeometry? _draftGeometry;
   bool _loaded = false;
+  String? _openedContent;
   bool _saving = false;
 
   @override
@@ -35,34 +45,56 @@ class _NoteEditorState extends State<NoteEditor> {
     if (_loaded) return;
     final id = widget.noteId;
     if (id != null) {
-      _controller.text = AppScope.of(context).notes.byId(id)?.rawContent ?? '';
+      final note = AppScope.of(context).notes.byId(id);
+      _title.text = (_openedTitle = note?.title) ?? '';
+      _controller.text = note?.rawContent ?? '';
+      _openedContent = _controller.text;
     } else {
       _controller.text = widget.initialText;
+      final windows = AppScope.of(context).windows;
+      if (windows != null) {
+        final geometry = _draftGeometry = NoteWindowGeometry(windows);
+        windowManager.addListener(geometry);
+      }
     }
     _loaded = true;
   }
 
   @override
   void dispose() {
+    final geometry = _draftGeometry;
+    if (geometry != null) windowManager.removeListener(geometry);
     _controller.dispose();
+    _title.dispose();
     super.dispose();
   }
 
-  void _save() {
-    final text = _controller.text;
-    if (_saving || text.trim().isEmpty) return;
+  Future<void> _save({String? content, int? line, DateTime? due}) async {
+    if (AppScope.of(context).restoring) return;
+    final text = content ?? _controller.text;
+    if (_saving || (text.trim().isEmpty && _title.text.trim().isEmpty)) return;
     setState(() => _saving = true);
     try {
       final service = AppScope.of(context).noteService;
       final id = widget.noteId;
-      final note = id == null
-          ? service.capture(text)
-          : service.editContent(id, text);
+      final note = line != null
+          ? service.saveWithItem(text, noteId: id, lineIndex: line, due: due, expectedContent: _openedContent,
+              title: _changedTitle, expectedTitle: _openedTitle)
+          : id == null
+          ? service.capture(text, title: _changedTitle)
+          : service.editContent(id, text, expectedContent: _openedContent, title: _changedTitle,
+              expectedTitle: _openedTitle);
+      final geometry = _draftGeometry;
+      if (geometry != null && geometry.draftResized) {
+        await geometry.saveCurrentFrame(note.id);
+        if (!mounted) return;
+      }
       Navigator.of(context).pop(note.id);
-    } catch (_) {
+    } catch (error) {
       setState(() => _saving = false);
       ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('保存失败，请重试。输入的内容仍在。')));
+          .showSnackBar(SnackBar(content: Text(error is StateError
+              ? error.message : '保存失败，请重试。输入的内容仍在。')));
     }
   }
 
@@ -79,9 +111,17 @@ class _NoteEditorState extends State<NoteEditor> {
         backgroundColor: const Color(0xFFFFF7D1),
         bottomNavigationBar: widget.noteId == null || database == null ? null
             : SafeArea(child: NoteMediaBar(noteId: widget.noteId!,
-                beforeMeeting: () => scope.noteService.editContent(widget.noteId!, _controller.text),
+                beforeMeeting: () {
+                  final saved = scope.noteService.editContent(widget.noteId!, _controller.text,
+                      expectedContent: _openedContent, title: _changedTitle, expectedTitle: _openedTitle);
+                  _openedContent = saved.rawContent;
+                  _title.text = (_openedTitle = saved.title) ?? '';
+                },
                 onChanged: () {
-                  if (mounted) _controller.text = scope.notes.byId(widget.noteId!)?.rawContent ?? _controller.text;
+                  if (mounted) {
+                    _openedContent = scope.notes.byId(widget.noteId!)?.rawContent ?? _controller.text;
+                    _controller.text = _openedContent!;
+                  }
                 })),
         appBar: AppBar(
           toolbarHeight: 40,
@@ -96,12 +136,13 @@ class _NoteEditorState extends State<NoteEditor> {
                 style: const TextStyle(fontSize: 14)))),
           ),
           actions: [
+            NoteFormatMenu(controller: _controller, onPromote: (line) => _save(line: line)),
             VoiceInputButton(controller: _controller, enabled: !scope.restoring && !_saving),
-            ValueListenableBuilder<TextEditingValue>(
-              valueListenable: _controller,
-              builder: (_, value, child) => TextButton(
+            ListenableBuilder(
+              listenable: Listenable.merge([_controller, _title]),
+              builder: (_, child) => TextButton(
                 style: TextButton.styleFrom(foregroundColor: SeqTokens.noteInk),
-                onPressed: _saving || value.text.trim().isEmpty ? null : _save,
+                onPressed: _saving || (_controller.text.trim().isEmpty && _title.text.trim().isEmpty) ? null : _save,
                 child: child!,
               ),
               child: const Text('保存'),
@@ -110,17 +151,11 @@ class _NoteEditorState extends State<NoteEditor> {
         ),
         body: Padding(
           padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
-          child: TextField(
-            controller: _controller,
-            autofocus: true,
-            expands: true,
-            maxLines: null,
-            style: const TextStyle(color: SeqTokens.noteInk, height: 1.6),
-            decoration: const InputDecoration(
-              hintText: '想到什么就写什么，一行一件事',
-              border: InputBorder.none,
-            ),
-          ),
+          child: Column(children: [
+            NoteTitleField(controller: _title),
+            Expanded(child: NoteMarkdownField(controller: _controller,
+                onSaveItem: (text, line, due) => _save(content: text, line: line, due: due))),
+          ]),
         ),
       ),
     );
