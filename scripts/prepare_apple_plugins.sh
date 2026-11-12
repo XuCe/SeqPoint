@@ -11,3 +11,7 @@ for platform in ios macos; do
   grep -Fq '.library(name: "native-adaptive-toolbox", targets: ["native_adaptive_toolbox"])' "$manifest"
   rm -f "$manifest.bak"
 done
+
+# The upstream iOS source uses unavailable APIs and omits its menu delegate.
+cp "$(dirname "$0")/../apps/seqpoint_app/ios/compat/NativeAdaptiveToolboxPlugin.swift" \
+  "$plugin_dir/ios/native_adaptive_toolbox/Sources/native_adaptive_toolbox/NativeAdaptiveToolboxPlugin.swift"
