@@ -66,7 +66,7 @@ file(READ "${sticky_plugin_dir}/flutter_window.cc" sticky_source)
 string(REPLACE "project.set_dart_entrypoint_arguments("
   "project.set_impeller_switch(flutter::ImpellerSwitch::Disabled);\n  project.set_dart_entrypoint_arguments("
   sticky_source "${sticky_source}")
-file(GENERATE OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/sticky_flutter_window.cc" CONTENT "${sticky_source}")
+file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/sticky_flutter_window.cc" "${sticky_source}")
 list(REMOVE_ITEM sticky_sources "flutter_window.cc")
 list(APPEND sticky_sources "${CMAKE_CURRENT_BINARY_DIR}/sticky_flutter_window.cc")
 set_property(TARGET desktop_multi_window_plugin PROPERTY SOURCES "${sticky_sources}")

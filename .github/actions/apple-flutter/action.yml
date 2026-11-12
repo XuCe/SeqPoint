@@ -1,0 +1,17 @@
+name: Set up Flutter for Apple builds
+description: Install the project Flutter SDK and prepare its native editor plugin for Xcode.
+inputs:
+  flutter-version:
+    description: Flutter version used by the build
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: subosito/flutter-action@v2
+      with:
+        flutter-version: ${{ inputs.flutter-version }}
+        channel: stable
+        cache: true
+    - name: Prepare editor SwiftPM product
+      shell: bash
+      run: bash scripts/prepare_apple_plugins.sh
