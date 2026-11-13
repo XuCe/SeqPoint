@@ -81,6 +81,10 @@ kotlin {
 
 dependencies {
     implementation(files("$rootDir/../../../native/syncthing/artifacts/seqpoint-syncthing.aar"))
+    // Dart 的 sqlite3 包在 Android 上只会 dlopen("libsqlite3.so")，系统库对应用不可见，
+    // 必须随 APK 打包。这是 sqlite3_flutter_libs 0.5.42 在 Android 上引入的同一个库；
+    // 只加在 Android，桌面与苹果平台继续用系统 SQLite。
+    implementation("eu.simonbinder:sqlite3-native-library:3.52.0")
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 

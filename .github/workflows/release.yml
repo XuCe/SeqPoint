@@ -184,6 +184,9 @@ jobs:
             echo "::error::产物用的是 debug 签名，发布密钥未生效"; exit 1
           fi
 
+      - name: 校验 APK 带齐原生库
+        run: scripts/check_android_native_libs.sh apps/seqpoint_app/build/app/outputs/flutter-apk/app-release.apk
+
       - name: 整理产物
         run: |
           mkdir -p dist

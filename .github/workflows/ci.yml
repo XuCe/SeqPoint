@@ -71,6 +71,8 @@ jobs:
           platform: android
       - run: dart pub get
       - run: cd apps/seqpoint_app && flutter build apk --debug --target-platform android-arm,android-arm64
+      - name: 校验 APK 带齐原生库
+        run: scripts/check_android_native_libs.sh apps/seqpoint_app/build/app/outputs/flutter-apk/app-debug.apk
 
   build-windows:
     runs-on: windows-latest
