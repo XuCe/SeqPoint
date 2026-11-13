@@ -8,7 +8,6 @@ export 'src/hotkey_service.dart';
 export 'src/notification_service.dart';
 export 'src/secret_store.dart';
 export 'src/selected_text_service.dart';
-export 'src/sync_engine_host.dart';
 export 'src/tray_service.dart';
 export 'src/widget_service.dart';
 export 'src/window_service.dart';

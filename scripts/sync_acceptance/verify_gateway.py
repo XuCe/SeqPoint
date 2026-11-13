@@ -71,7 +71,7 @@ def verify(use_http=False):
                        SEQPOINT_TEST_GATEWAY_PASSWORD=password)
             subprocess.run(["flutter", "test", "--no-pub", "--reporter", "expanded",
                             "test/app_sync_service_test.dart", "--plain-name",
-                            "gateway invitation enrolls"], check=True, env=env,
+                            "gateway "], check=True, env=env,
                            cwd=REPO / "apps/seqpoint_app")
         finally:
             docker("rm", "-fv", container)

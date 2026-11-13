@@ -26,7 +26,7 @@ func gatewayLinks(w http.ResponseWriter, r *http.Request) {
 	case "/.well-known/apple-app-site-association":
 		team := os.Getenv("GATEWAY_APPLE_TEAM")
 		if appleTeam.MatchString(team) {
-			data = map[string]any{"applinks": map[string]any{"details": []any{map[string]any{"appIDs": []string{team + ".com.seqpoint.seqpointApp"}, "components": []any{map[string]string{"/": "/invite"}}}}}}
+			data = map[string]any{"applinks": map[string]any{"details": []any{map[string]any{"appIDs": []string{team + ".com.seqpoint.seqpointApp"}, "components": []any{map[string]string{"/": "/invite"}, map[string]string{"/": "/join"}}}}}}
 		}
 	}
 	if data == nil {

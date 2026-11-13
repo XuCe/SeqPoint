@@ -16,56 +16,54 @@ class _Search extends Fake implements SearchService {}
 class _Capture extends Fake implements NoteService {}
 
 class _Sync extends AppSyncService {
+  _Sync(SeqDatabase db) : super(db: db, root: Directory('unused'), secrets: _Secrets());
   @override
   bool get mediaSyncEnabled => false;
-  _Sync(SeqDatabase db) : super(db: db, root: Directory('unused'), secrets: _Secrets());
-  int prepares = 0;
-  bool ready = false;
-  bool failPrepare = false;
-  String? failure;
+  bool ready = false, paired = false, failPrepare = false, pending = false;
+  String? origin, failure;
+  int prepares = 0, syncs = 0, retries = 0;
+  final links = <String>[];
+  Completer<void>? gate;
+  Object? linkError;
   @override
   String? get error => failure;
-  bool paired = false;
-  int syncs = 0;
-  int starts = 0;
-  bool get observing => hasListeners;
-  int? listening;
   @override
-  int? get listeningPort => listening;
+  bool get prepared => ready;
   @override
-  Future<int> startServer({InternetAddress? address, int port = 0, bool automatic = false}) async {
-    starts++; listening = 31415; notifyListeners(); return listening!;
-  }
-  @override
-  Future<void> pause() async { listening = null; notifyListeners(); }
-  SyncOutcome? round;
+  bool get hasVault => paired;
   @override
   bool get canSync => paired;
+  @override
+  String get status => prepared ? '等待手动同步' : '尚未准备同步';
+  @override
+  Object? get membershipVersion => Object();
   @override
   List<MemberKeys> get verifiedPeers => paired ? [MemberKeys(deviceId: 'a' * 43,
     signingPublicKey: List.filled(32, 1), exchangePublicKey: List.filled(32, 2),
     tlsFingerprint: 'b' * 64)] : [];
   @override
-  SyncOutcome? get lastRound => round;
+  Future<String?> gatewayOrigin() async => origin;
   @override
-  Future<SyncOutcome> syncOnce({required String peerDeviceId,
-      required String host, required int port, bool automatic = false}) async {
-    syncs++;
-    round = const SyncOutcome(pulled: 2, pushed: 3, reclaimed: 0, peers: [],
-      pendingObjects: 1, waitingPeers: ['waiting']);
-    notifyListeners(); return round!;
+  Future<bool> hasPendingEnrollment() async => pending;
+  @override
+  Future<void> retryEnrollment() async { retries++; pending = false; origin = 'http://nas.local:8385'; notifyListeners(); }
+  @override
+  Future<void> connectWithLink(String link, {void Function(String step)? onProgress,
+      bool Function()? cancelled}) async {
+    links.add(link);
+    onProgress?.call('正在连接同步服务器');
+    await gate?.future;
+    if (linkError case final error?) throw error;
+    paired = true; origin = 'http://nas.local:8385'; notifyListeners();
   }
-  Completer<void>? gate;
   @override
-  bool get prepared => ready;
-  @override
-  bool get hasVault => false;
-  @override
-  String get status => prepared ? '未配对' : '尚未准备同步';
+  Future<SyncOutcome> syncRelay({bool automatic = false}) async {
+    syncs++;
+    return const SyncOutcome(pulled: 2, pushed: 3, reclaimed: 0, peers: []);
+  }
   @override
   Future<void> prepare(String name) async {
     prepares++;
-    await gate?.future;
     ready = true;
     if (failPrepare) { failure = '安全记录读取失败'; throw StateError('private-key-material'); }
     failure = null;
@@ -73,124 +71,131 @@ class _Sync extends AppSyncService {
   }
 }
 
-Future<void> _show(WidgetTester tester, Finder finder) async {
-  await tester.scrollUntilVisible(finder, 200,
-      scrollable: find.byType(Scrollable).first);
-  await Scrollable.ensureVisible(tester.element(finder), alignment: 0.5);
-  await tester.pump();
+Future<void> _mount(WidgetTester tester, _Sync sync, {Size size = const Size(900, 1500)}) async {
+  await tester.binding.setSurfaceSize(size);
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
+  await tester.pumpAndSettle();
 }
 
+const _retired = ['局域网直连', '局域网自动双向同步', '云中转', '节点地址（HTTP / HTTPS）',
+  '复制节点配置', '自建 Syncthing 节点', '手动配对设备', '手动连接', '开始局域网监听', '高级同步设置'];
+
 void main() {
-  testWidgets('最近一轮逐项显示真实等待设备，完成后移除且不猜测原因', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(900, 1500));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final sync = _Sync(SeqDatabase.inMemory())..ready = true;
+  testWidgets('未连接时只有一个粘贴框，旧的同步方式全部不再出现', (tester) async {
+    final sync = _Sync(SeqDatabase.inMemory());
     addTearDown(() { sync.db.close(); sync.dispose(); });
-    sync.round = const SyncOutcome(pulled: 0, pushed: 0, reclaimed: 0,
-      peers: [], waitingPeers: ['known-peer-id', 'unseen-peer-id']);
-    await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
-    await _show(tester, find.text('高级同步设置')); await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
-    expect(find.text('known-peer-id'), findsOneWidget);
-    expect(find.text('unseen-peer-id'), findsOneWidget);
-    expect(find.textContaining('缺少密钥'), findsNothing);
-    expect(find.textContaining('序号缺口'), findsNothing);
-    sync.round = const SyncOutcome(pulled: 0, pushed: 0, reclaimed: 0, peers: []);
-    sync.notifyListeners(); await tester.pumpAndSettle();
-    expect(find.text('known-peer-id'), findsNothing);
-    expect(find.text('unseen-peer-id'), findsNothing);
+    await _mount(tester, sync);
+    expect(find.text('连接同步服务器'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sync-link')), findsOneWidget);
+    for (final text in _retired) {
+      expect(find.text(text), findsNothing, reason: text);
+    }
+    expect(find.text('添加设备'), findsNothing);
+    expect(find.text('已同步'), findsNothing);
   });
-  testWidgets('只手动监听且显示实际端口，离开页解除服务订阅', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(900, 1500));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final sync = _Sync(SeqDatabase.inMemory())..ready = true..paired = true;
+
+  testWidgets('粘贴的链接交给统一入口，连接后显示设备和添加入口', (tester) async {
+    final sync = _Sync(SeqDatabase.inMemory());
     addTearDown(() { sync.db.close(); sync.dispose(); });
-    await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
-    await _show(tester, find.text('高级同步设置')); await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
-    expect(sync.starts, 0);
-    await _show(tester, find.text('开始局域网监听')); await tester.tap(find.text('开始局域网监听')); await tester.pumpAndSettle();
-    expect(sync.starts, 1); expect(find.text('正在监听端口 31415'), findsOneWidget);
-    expect(tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '开始局域网监听')).onPressed, isNull);
-    await _show(tester, find.text('暂停同步')); await tester.tap(find.text('暂停同步')); await tester.pumpAndSettle();
-    expect(sync.listeningPort, isNull);
-    await tester.pumpWidget(const SizedBox()); expect(sync.observing, isFalse);
+    await _mount(tester, sync);
+    await tester.enterText(find.byKey(const ValueKey('sync-link')),
+        '  http://nas.local:8385/join#${'k' * 43}  ');
+    await tester.tap(find.widgetWithText(FilledButton, '连接'));
+    await tester.pumpAndSettle();
+    expect(sync.links, ['http://nas.local:8385/join#${'k' * 43}']);
+    expect(find.text('已连接同步服务器'), findsOneWidget);
+    expect(find.textContaining('nas.local:8385'), findsOneWidget);
+    expect(find.text('添加设备'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sync-link')), findsNothing);
+    expect(sync.syncs, 1);
   });
-  testWidgets('从Scope注入服务且恢复期间小屏表单与操作均禁用', (tester) async {
+
+  testWidgets('链接错误显示可读原因并保留输入，等待期间不能重复提交', (tester) async {
+    final sync = _Sync(SeqDatabase.inMemory())
+      ..gate = Completer<void>()
+      ..linkError = const FormatException('加入链接已过期或已被使用，请在已连接的设备上重新生成');
+    addTearDown(() { sync.db.close(); sync.dispose(); });
+    await _mount(tester, sync);
+    await tester.enterText(find.byKey(const ValueKey('sync-link')), 'http://nas.local:8385/join#x');
+    await tester.tap(find.widgetWithText(FilledButton, '连接'));
+    await tester.pump();
+    expect(find.text('正在连接同步服务器'), findsOneWidget);
+    expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, '连接中…')).onPressed, isNull);
+    sync.gate!.complete();
+    await tester.pumpAndSettle();
+    expect(sync.links, hasLength(1));
+    expect(find.text('加入链接已过期或已被使用，请在已连接的设备上重新生成'), findsOneWidget);
+    expect(find.text('http://nas.local:8385/join#x'), findsOneWidget);
+    expect(find.text('已连接同步服务器'), findsNothing);
+  });
+
+  testWidgets('登记中断后显示重试，而不是重新要链接', (tester) async {
+    final sync = _Sync(SeqDatabase.inMemory())..ready = true..paired = true..pending = true;
+    addTearDown(() { sync.db.close(); sync.dispose(); });
+    await _mount(tester, sync);
+    expect(find.text('还差一步：连接同步服务器'), findsOneWidget);
+    expect(find.byKey(const ValueKey('sync-link')), findsNothing);
+    await tester.tap(find.text('重试连接'));
+    await tester.pumpAndSettle();
+    expect(sync.retries, 1);
+    expect(find.text('已连接同步服务器'), findsOneWidget);
+  });
+
+  testWidgets('立即同步只走服务器，结果不声称对端已收到', (tester) async {
+    final sync = _Sync(SeqDatabase.inMemory())..ready = true..paired = true
+      ..origin = 'http://nas.local:8385';
+    addTearDown(() { sync.db.close(); sync.dispose(); });
+    await _mount(tester, sync);
+    await tester.scrollUntilVisible(find.text('立即同步'), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('立即同步'));
+    await tester.pumpAndSettle();
+    expect(sync.syncs, 1);
+    expect(find.text('已同步'), findsNothing);
+    for (final text in _retired) {
+      expect(find.text(text), findsNothing, reason: text);
+    }
+  });
+
+  testWidgets('从Scope注入服务且恢复期间小屏所有操作均禁用', (tester) async {
     await tester.binding.setSurfaceSize(const Size(390, 844));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    final sync = _Sync(SeqDatabase.inMemory())..ready = true..paired = true;
+    final sync = _Sync(SeqDatabase.inMemory())..ready = true..paired = true
+      ..origin = 'http://nas.local:8385';
     addTearDown(() { sync.db.close(); sync.dispose(); });
     await tester.pumpWidget(MaterialApp(home: AppScope(noteService: _Capture(),
       notes: _Notes(), items: _Items(), tags: _Tags(), search: _Search(),
       restoring: true, sync: sync, child: const SyncSettingsPage())));
-    await _show(tester, find.text('高级同步设置')); await tester.tap(find.text('高级同步设置')); await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
     expect(find.text('正在恢复备份，同步操作暂不可用'), findsOneWidget);
-    await tester.scrollUntilVisible(find.byKey(const ValueKey('sync-host')), 200,
-      scrollable: find.byType(Scrollable).first);
-    expect(tester.widget<TextFormField>(find.byKey(const ValueKey('sync-host'))).enabled, isFalse);
     for (final button in tester.widgetList<ButtonStyleButton>(
       find.byWidgetPredicate((widget) => widget is ButtonStyleButton))) {
       expect(button.onPressed, isNull);
     }
+    for (final tile in tester.widgetList<SwitchListTile>(find.byType(SwitchListTile))) {
+      expect(tile.onChanged, isNull);
+    }
     expect(sync.prepares, 0); expect(sync.syncs, 0);
     expect(tester.takeException(), isNull);
   });
-  testWidgets('部分准备失败可显式重新读取安全记录，不显示底层异常', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(900, 1500));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final sync = _Sync(SeqDatabase.inMemory())..failPrepare = true;
+
+  testWidgets('安全记录读取失败可显式重新读取，不显示底层异常', (tester) async {
+    final sync = _Sync(SeqDatabase.inMemory())..ready = true..failure = '安全记录读取失败';
     addTearDown(() { sync.db.close(); sync.dispose(); });
-    await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
-    await _show(tester, find.text('高级同步设置')); await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
-    await _show(tester, find.text('准备本机')); await tester.tap(find.text('准备本机')); await tester.pumpAndSettle();
-    expect(sync.prepared, isTrue);
-    expect(find.text('private-key-material'), findsNothing);
-    await tester.scrollUntilVisible(find.text('安全记录读取失败'), -200,
-      scrollable: find.byType(Scrollable).first);
+    await _mount(tester, sync);
     expect(find.text('安全记录读取失败'), findsOneWidget);
-    sync.failPrepare = false;
-    await _show(tester, find.text('重新读取安全记录')); await tester.tap(find.text('重新读取安全记录')); await tester.pumpAndSettle();
-    expect(sync.prepares, 2); expect(sync.error, isNull);
+    await tester.tap(find.text('重新读取安全记录'));
+    await tester.pumpAndSettle();
+    expect(sync.prepares, 1); expect(sync.error, isNull);
+    expect(find.text('private-key-material'), findsNothing);
   });
-  testWidgets('地址验证保留输入，发布不声称对端收到', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(900, 1500));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final sync = _Sync(SeqDatabase.inMemory())..ready = true..paired = true;
-    addTearDown(() { sync.db.close(); sync.dispose(); });
-    await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
-    await _show(tester, find.text('高级同步设置')); await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(const ValueKey('sync-host')), 'bad address');
-    await tester.enterText(find.byKey(const ValueKey('sync-port')), '4000');
-    await _show(tester, find.text('连接并同步一次')); await tester.tap(find.text('连接并同步一次')); await tester.pump();
-    expect(sync.syncs, 0); expect(find.text('请输入有效的 IP 地址'), findsOneWidget);
-    await tester.enterText(find.byKey(const ValueKey('sync-host')), '192.0.2.1');
-    await _show(tester, find.text('连接并同步一次')); await tester.tap(find.text('连接并同步一次')); await tester.pumpAndSettle();
-    expect(sync.syncs, 1);
-    expect(find.text('本机已发布 3 条 · 已合入 2 条'), findsOneWidget);
-    expect(find.textContaining('待合并记录 1'), findsOneWidget);
-    expect(find.text('已同步'), findsNothing);
-  });
-  testWidgets('用户点击才准备本机，等待期间禁止重复提交', (tester) async {
-    final sync = _Sync(SeqDatabase.inMemory());
-    addTearDown(() { sync.db.close(); sync.dispose(); });
-    sync.gate = Completer<void>();
-    await tester.pumpWidget(MaterialApp(home: SyncSettingsPage(service: sync)));
-    await _show(tester, find.text('高级同步设置')); await tester.tap(find.text('高级同步设置')); await tester.pumpAndSettle();
-    expect(sync.prepares, 0);
-    await _show(tester, find.text('准备本机')); await tester.tap(find.text('准备本机')); await tester.pump();
-    expect(sync.prepares, 1);
-    expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, '准备本机')).onPressed, isNull);
-    sync.gate!.complete(); await tester.pumpAndSettle();
-    expect(find.text('未配对'), findsOneWidget);
-    expect(find.text('已同步'), findsNothing);
-  });
-  testWidgets('没有服务时诚实显示仅本机且通道不可启用', (tester) async {
+
+  testWidgets('没有服务时诚实显示仅本机', (tester) async {
     await tester.pumpWidget(const MaterialApp(home: SyncSettingsPage()));
     expect(find.text('仅本机'), findsOneWidget);
     expect(find.text('此版本尚未接入设备同步服务'), findsOneWidget);
-    for (final tile in tester.widgetList<SwitchListTile>(find.byType(SwitchListTile))) {
-      expect(tile.value, isFalse);
-      expect(tile.onChanged, isNull);
-    }
+    expect(find.byType(SwitchListTile), findsNothing);
     expect(find.text('已同步'), findsNothing);
   });
 }

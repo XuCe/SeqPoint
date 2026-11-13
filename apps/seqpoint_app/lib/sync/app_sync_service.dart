@@ -10,106 +10,131 @@ import 'sync_identity_store.dart';
 import 'sync_membership_controller.dart';
 import 'sync_membership_store.dart';
 import 'sync_tls_store.dart';
-import 'lan_pairing_link.dart';
-import 'lan_pairing_network.dart';
-import 'syncthing_client.dart';
+import 'device_join_link.dart';
+import 'gateway_mailbox.dart';
 import 'hosted_invite.dart';
 
 part 'app_sync_service_pairing.dart';
 part 'app_sync_service_recovery.dart';
 part 'app_sync_service_revocation.dart';
 part 'app_sync_service_automatic.dart';
-part 'app_sync_service_lan_pairing.dart';
-part 'app_sync_service_lan.dart';
-part 'app_sync_service_syncthing.dart';
+part 'app_sync_service_join.dart';
 
 /// Main-engine owner; construction does not touch storage or the network.
+///
+/// 同步只有一种方式：序点同步网关。第一台设备粘贴服务器邀请，
+/// 其他设备用已连接设备给出的一次性加入链接，经网关完成加密配对后自动登记。
 class AppSyncService extends ChangeNotifier {
   AppSyncService({required this.db, required this.root, required this.secrets,
-      this.onCommittedChange, this.engineHost});
-  final SyncEngineHost? engineHost;
-  bool _syncthingEnabled = false;
-  bool _syncthingRetry = false;
-  String? _syncthingSession;
-  String _syncthingMessage = '';
-  bool get syncthingSupported => engineHost?.isSupported ?? false;
-  bool get syncthingEnabled => _syncthingEnabled;
-  String get syncthingMessage => _syncthingMessage;
-  Future<String> loadSyncthingAddress() async => (await _readSyncthing())?.address ?? '';
-  Future<String?> hostedOrigin() async {
-    final config = await _readSyncthing();
-    return config?.apiKey.isEmpty == true ? config!.address : null;
+      this.onCommittedChange});
+  // 保留旧版本使用的存储键，升级前未完成的网关登记仍可继续。
+  String? get _pendingKey => identity == null || relayVaultId == null
+      ? null : 'sync.syncthing.${identity!.deviceId}.$relayVaultId.hostedPending';
+  Future<String?> pendingHostedInvite() async {
+    final key = _pendingKey;
+    return key == null ? null : secrets.read(key);
   }
-  Future<String?> pendingHostedInvite() async => _syncthingKey == null
-      ? null : secrets.read('$_syncthingKey.hostedPending');
+  /// 已配对但还没登记到同步服务器（例如登记时断网）。
+  Future<bool> hasPendingEnrollment() async =>
+      await gatewayOrigin() == null && await pendingHostedInvite() != null;
+  Future<void> retryEnrollment() async {
+    final pending = await pendingHostedInvite();
+    if (pending == null) throw StateError('没有待完成的服务器登记');
+    await enableHosted(pending);
+  }
   Future<String?> hostedGrant(MemberKeys peer) async {
     final gateway = await gatewayOrigin();
-    if (gateway == null && !syncthingEnabled) return null;
-    final origin = gateway ?? await hostedOrigin();
-    if (origin == null) return null;
+    if (gateway == null) return null;
     final member = _controller!.authorize(relayVaultId!, peer.deviceId);
     if (member == null || !listEquals(member.signingPublicKey, peer.signingPublicKey)) {
       throw StateError('设备已不在资料库中');
     }
-    return HostedInvite.delegate(origin, gateway != null ? relayVaultId! : _syncthingFolderId,
-        _local!.keys.signer, member.signingPublicKey, gateway: gateway != null);
-  }
-  Future<void> enableHosted(String link) async {
-    final invite = HostedInvite.parse(link);
-    if (!invite.gateway && !syncthingSupported) throw StateError('当前平台没有同步引擎');
-    if (!prepared) await prepare('本机');
-    if (!invite.gateway && !hasVault && invite.token.isNotEmpty) await newVault();
-    if (invite.gateway) {
-      await _run(() async {
-        _requirePrepared();
-        _requireNormalMode();
-        final signer = _local!.keys.signer;
-        final first = !hasVault;
-        if (first && invite.token.isEmpty || !first && !canSync) throw StateError('请先与资料库中的设备配对');
-        final staged = 'sync.gateway.newVault.${identity!.deviceId}';
-        // Keep the candidate ID across a lost response or a crash before local commit.
-        var candidate = relayVaultId ?? await secrets.read(staged);
-        if (candidate == null) {
-          final random = Random.secure();
-          candidate = base64UrlEncode(List.generate(32, (_) => random.nextInt(256))).replaceAll('=', '');
-          await secrets.write(staged, candidate);
-        }
-        final vault = candidate;
-        if (invite.issuer.isNotEmpty &&
-            (!verifiedPeers.any((p) => _authorize(vault, p.deviceId) != null &&
-                base64Encode(p.signingPublicKey) == invite.issuer) ||
-             !await signer.verify(utf8.encode(['seqpoint-gateway-grant-v1', invite.origin,
-               vault, base64Encode(signer.publicKey)].join('\n')), base64Decode(invite.grant),
-               base64Decode(invite.issuer)))) {
-          throw const FormatException('授权与当前配对设备不匹配');
-        }
-        await invite.enroll(vault, identity!.deviceId, signer);
-        if (first && !_closed) await _createLocalVault(vaultPublicId: vault);
-        if (_closed || !canSync || vault != relayVaultId) throw StateError('资料库已变化');
-        await _storeRelayEndpoint('gateway+${invite.origin}');
-        await secrets.delete(staged);
-      });
-    } else {
-      await _saveSyncthing(address: invite.origin, apiKey: '', invite: invite);
-    }
-    await secrets.delete('$_syncthingKey.hostedPending');
+    return HostedInvite.delegate(gateway, relayVaultId!,
+        _local!.keys.signer, member.signingPublicKey, gateway: true);
   }
 
-  Future<void> saveSyncthing({required String address, required String apiKey}) =>
-      _saveSyncthing(address: address, apiKey: apiKey);
-  Future<void> setSyncthingEnabled(bool enabled) => _setSyncthingEnabled(enabled);
-  Future<SyncOutcome> syncSyncthing({bool automatic = false}) => _syncSyncthing(automatic: automatic);
+  AddDeviceSession? _joining;
+  /// 在已连接同步服务器的设备上生成一次性加入链接，等待新设备加入。
+  AddDeviceSession startAddDevice() {
+    _joining?.cancel();
+    final session = _joining = AddDeviceSession._(this);
+    unawaited(session._start());
+    return session;
+  }
+  /// 新设备打开已连接设备给出的加入链接：经同步服务器配对并登记。
+  Future<void> joinWithLink(String link, {void Function(String step)? onProgress,
+      bool Function()? cancelled}) => _joinWithLink(link, onProgress, cancelled);
+
+  /// 粘贴框的统一入口：服务器邀请或已连接设备的加入链接。
+  Future<void> connectWithLink(String link, {void Function(String step)? onProgress,
+      bool Function()? cancelled}) async {
+    if (DeviceJoinLink.looksLike(link)) {
+      return joinWithLink(link, onProgress: onProgress, cancelled: cancelled);
+    }
+    final HostedInvite invite;
+    try {
+      invite = HostedInvite.parse(link);
+    } on FormatException {
+      throw const FormatException('请粘贴服务器邀请链接，或已连接设备上的加入链接');
+    }
+    if (!invite.gateway) throw const FormatException('请使用序点同步网关生成的邀请链接');
+    onProgress?.call('正在连接同步服务器');
+    await enableHosted(link);
+  }
+
+  Future<void> enableHosted(String link) async {
+    final invite = HostedInvite.parse(link);
+    if (!invite.gateway) throw const FormatException('请使用序点同步网关生成的邀请链接');
+    if (!prepared) await prepare(_defaultDeviceName());
+    await _run(() async {
+      _requirePrepared();
+      _requireNormalMode();
+      final signer = _local!.keys.signer;
+      final first = !hasVault;
+      if (first && invite.token.isEmpty || !first && !canSync) throw StateError('请先与资料库中的设备配对');
+      final staged = 'sync.gateway.newVault.${identity!.deviceId}';
+      // Keep the candidate ID across a lost response or a crash before local commit.
+      var candidate = relayVaultId ?? await secrets.read(staged);
+      if (candidate == null) {
+        final random = Random.secure();
+        candidate = base64UrlEncode(List.generate(32, (_) => random.nextInt(256))).replaceAll('=', '');
+        await secrets.write(staged, candidate);
+      }
+      final vault = candidate;
+      if (invite.issuer.isNotEmpty &&
+          (!verifiedPeers.any((p) => _authorize(vault, p.deviceId) != null &&
+              base64Encode(p.signingPublicKey) == invite.issuer) ||
+           !await signer.verify(utf8.encode(['seqpoint-gateway-grant-v1', invite.origin,
+             vault, base64Encode(signer.publicKey)].join('\n')), base64Decode(invite.grant),
+             base64Decode(invite.issuer)))) {
+        throw const FormatException('授权与当前配对设备不匹配');
+      }
+      await invite.enroll(vault, identity!.deviceId, signer);
+      if (first && !_closed) await _createLocalVault(vaultPublicId: vault);
+      if (_closed || !canSync || vault != relayVaultId) throw StateError('资料库已变化');
+      await _storeRelayEndpoint('gateway+${invite.origin}');
+      await secrets.delete(staged);
+    });
+    final pending = _pendingKey;
+    if (pending != null) await secrets.delete(pending);
+  }
+
+  static String _defaultDeviceName() {
+    try {
+      final name = Platform.localHostname.trim();
+      if (name.isNotEmpty && name != 'localhost' && name.length <= 64) return name;
+    } catch (_) {}
+    if (Platform.isAndroid) return 'Android 设备';
+    if (Platform.isIOS) return 'iPhone';
+    if (Platform.isMacOS) return 'Mac';
+    if (Platform.isWindows) return 'Windows 电脑';
+    return '本机';
+  }
+
   final SeqDatabase db;
   final Directory root;
   final SecretStore secrets;
   final FutureOr<void> Function()? onCommittedChange;
-  bool _lanEnabled = false;
-  final Map<String, LanPeer> _lanPeers = {};
-  bool get lanEnabled => _lanEnabled;
-  List<LanPeer> get lanPeers => List.unmodifiable(_lanPeers.values);
-  Future<void> setLanEnabled(bool value) => _setLanEnabled(value);
-  LanPairingCoordinator? _lanPairing;
-  LanPairingCoordinator get lanPairing => _lanPairing ??= LanPairingCoordinator(this);
   LocalDeviceIdentity? _local;
   LanTlsIdentity? _tls;
   SyncMembershipController? _controller;
@@ -135,21 +160,13 @@ class AppSyncService extends ChangeNotifier {
   void _notifyAutomatic()=>notifyListeners();
   void suspendAutomatic() {
     _suspended=true;_automatic?.suspend();
-    if (!_closed && engineHost != null) {
-      unawaited(_run(() async {
-        await _stopSyncthing();
-        if (_syncthingEnabled) _syncthingMessage='跨网同步已暂停';
-      }).catchError((Object _) {
-        if (!_closed) { _error='跨网同步暂停失败';notifyListeners(); }
-      }));
-    }
   }
   Future<void> resumeAutomatic() async {
     if(_closed) return;_suspended=false;
     try {
       if(!_automaticStarted) {await startAutomatic();} else {await _refreshAutomaticTarget();}
       _automatic?.request();
-    } catch(_) {if(!_closed) {_error='自动同步恢复失败，请检查节点设置';notifyListeners();}}
+    } catch(_) {if(!_closed) {_error='自动同步恢复失败，请检查同步服务器连接';notifyListeners();}}
   }
   Future<void> setAutomaticEnabled(bool enabled)=>_run(() async {
     if(!await (await SharedPreferences.getInstance()).setBool('sync.auto.enabled',enabled)) throw StateError('自动同步设置保存失败');
@@ -198,7 +215,7 @@ class AppSyncService extends ChangeNotifier {
     if (!_controller!.current!.isUsable) return '等待有效成员密钥';
     if (_listeningPort != null) return '已监听端口 $_listeningPort';
     if (_paused || _userPaused) return '同步已暂停';
-    if(_automaticEnabled && _automaticEndpoint.isNotEmpty) return '自动云同步已开启';
+    if(_automaticEnabled && _automaticEndpoint.isNotEmpty) return '自动同步已开启';
     return '等待手动同步';
   }
 
@@ -269,7 +286,6 @@ class AppSyncService extends ChangeNotifier {
 
   Future<void> _selectLocal(LocalDeviceIdentity local) async {
     if (_local?.keys.deviceId != local.keys.deviceId) {
-      await _stopSyncthing(); _syncthingEnabled=false; _syncthingMessage='';
       await _runtime?.stop(); await _controller?.stop();
       await _membershipChanges?.cancel();
       _runtime = null; _controller = null; _baselineReady = false;
@@ -331,7 +347,7 @@ class AppSyncService extends ChangeNotifier {
       if (pending != null && !_closed) await enableHosted(pending);
     } catch (_) {
       if (_closed) return;
-      _syncthingMessage = '设备已配对，云节点暂未开通。请在同步设置中重试。';
+      _relayMessages[relayVaultId ?? ''] = '设备已配对，同步服务器暂未登记，请在同步设置中重试';
       notifyListeners();
     }
   }
@@ -432,7 +448,7 @@ class AppSyncService extends ChangeNotifier {
     _relayMessages.remove(vault);
     try {
       final endpoint = await loadRelayEndpoint();
-      if (endpoint.isEmpty) throw StateError('请先保存节点地址');
+      if (endpoint.isEmpty) throw StateError('请先连接同步服务器');
       final gateway = await gatewayOrigin() == endpoint;
       if (gateway) await _sendGatewayRevocations(endpoint);
       if (_closed || !canSync) throw StateError('同步已停止');
@@ -456,27 +472,24 @@ class AppSyncService extends ChangeNotifier {
             ? '本轮交换已完成，仍有分块待传；后续同步会继续'
             : value.waitingPeers.isNotEmpty
             ? '部分数据仍在等待密钥或前序日志，请稍后重试'
-            : '已完成本轮云端交换，等待其他设备取走；不代表对端已接收';
+            : '已与同步服务器交换最新修改';
         return value;
       }
-      throw StateError((result as Err<SyncOutcome>).message ?? '云同步失败');
+      throw StateError((result as Err<SyncOutcome>).message ?? '同步失败');
     } catch (error) {
       final detail = error.toString();
       _relayMessages[vault] = detail.contains('HTTP 413') ? '上传超过资料库配额或文件大小限制'
           : detail.contains('HTTP 507') ? '节点磁盘空间不足，上传暂缓'
           : detail.contains('HTTP 403') ? '节点已暂停此空间或设备无权访问'
-          : '云同步未完成：$error';
+          : '同步未完成：$error';
       rethrow;
     }
   });
 
-  Future<int> startServer({InternetAddress? address, int port = 0, bool automatic = false}) => _run(() async {
+  /// 局域网直连，仅用于测试与诊断；用户界面只走同步服务器。
+  Future<int> startServer({InternetAddress? address, int port = 0}) => _run(() async {
     if (!canSync) throw StateError('同步尚未安全启用');
-    if (automatic) {
-      if (_closed || _userPaused || _suspended || !_lanEnabled || !_automaticEnabled) {
-        throw StateError('自动同步已暂停');
-      }
-    } else { await _resumeManual(); }
+    await _resumeManual();
     if (_listeningPort != null) return _listeningPort!;
     if (_paused) { _runtime!.resume(); _paused = false; }
     final prefs = await SharedPreferences.getInstance();
@@ -488,16 +501,13 @@ class AppSyncService extends ChangeNotifier {
     return _listeningPort!;
   });
 
+  /// 局域网直连，仅用于测试与诊断；用户界面只走同步服务器。
   Future<SyncOutcome> syncOnce({required String peerDeviceId, required String host,
-      required int port, bool automatic = false}) => _run(() async {
+      required int port}) => _run(() async {
     if (!canSync || host.trim().isEmpty || port < 1 || port > 65535) {
       throw StateError('同步身份或对端地址无效');
     }
-    if (automatic) {
-      if (_closed || _userPaused || _suspended || !_lanEnabled || !_automaticEnabled) {
-        throw StateError('自动同步已暂停');
-      }
-    } else { await _resumeManual(); }
+    await _resumeManual();
     final peer = _controller!.authorize(
         _controller!.current!.state.vaultPublicId, peerDeviceId);
     if (peer == null) throw StateError('对端不在有效成员名单');
@@ -513,8 +523,6 @@ class AppSyncService extends ChangeNotifier {
     return _run(() async {
       _userPaused=true;_automatic?.suspend();
       await _runtime?.pause();_listeningPort=null;_paused=true;
-      await _stopSyncthing();
-      if (_syncthingEnabled) _syncthingMessage='跨网同步已暂停';
       if(!await (await SharedPreferences.getInstance()).setBool('sync.user.paused',true)) throw StateError('同步暂停状态保存失败');
     });
   }
@@ -534,12 +542,11 @@ class AppSyncService extends ChangeNotifier {
   }
 
   Future<void> _stop() async {
-    await _lanPairing?.close();
+    _joining?.cancel();
     await _tail;
     await _automatic?.stop();
     cancelPairing();
     await _runtime?.stop();
-    await _stopSyncthing();
     await _controller?.stop();
     await _membershipChanges?.cancel();
     _listeningPort = null; notifyListeners();

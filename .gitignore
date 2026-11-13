@@ -14,7 +14,6 @@ pubspec.lock
 *.key
 *.pem
 !apps/seqpoint_app/windows/runner/resources/update_dsa_pub.pem
-/vendor/syncthing/
 docs/design/preview/
 
 # Android 发布签名——绝不入库。

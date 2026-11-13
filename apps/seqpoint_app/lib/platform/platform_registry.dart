@@ -27,7 +27,6 @@ class PlatformRegistry {
     this.widgets,
     this.shareIntake,
     this.quickActions,
-    this.syncEngine,
   });
 
   final HotkeyService? hotkeys;
@@ -42,9 +41,6 @@ class PlatformRegistry {
 
   /// 安全存储是唯一各端都必须有的能力。
   final SecretStore secrets;
-
-  /// 可选的 Syncthing 引擎宿主。按需下载，首装不含。
-  final SyncEngineHost? syncEngine;
 
   static bool get isDesktop =>
       Platform.isMacOS || Platform.isWindows || Platform.isLinux;

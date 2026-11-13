@@ -47,8 +47,8 @@ class _MePageState extends State<MePage> {
                 ]),
                 const SizedBox(height: 6),
                 Text(peers > 0
-                    ? '在同一个局域网里会自动交换修改，云中转开启时离线也能收到。'
-                    : '数据只在这台设备上。扫码配对另一台设备，就能互相同步。',
+                    ? '修改经同步服务器自动交换，设备不必同时在线。'
+                    : '数据只在这台设备上。连接同步服务器后，其他设备扫码即可加入。',
                     style: const TextStyle(fontSize: 13, height: 1.55, color: SeqTokens.inkMuted)),
                 const SizedBox(height: 12),
                 SizedBox(

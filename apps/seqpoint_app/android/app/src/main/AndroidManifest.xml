@@ -51,6 +51,7 @@
                 <category android:name="android.intent.category.DEFAULT"/>
                 <category android:name="android.intent.category.BROWSABLE"/>
                 <data android:scheme="https" android:host="${hostedHost}" android:path="/invite"/>
+                <data android:scheme="https" android:host="${hostedHost}" android:path="/join"/>
             </intent-filter>
             <!-- 系统分享菜单里的"发送到序点" -->
             <intent-filter>

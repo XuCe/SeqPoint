@@ -16,5 +16,3 @@
 | `mobile_share.dart` | M1 | 系统分享接入（receive_sharing_intent） |
 | `mobile_quick_actions.dart` | M1 | 长按图标动作（quick_actions） |
 | `secure_secret_store.dart` | M1 | Keychain / Keystore / DPAPI（flutter_secure_storage） |
-| `syncthing_host_desktop.dart` | M4 | 按需下载引擎、校验签名、sidecar 启动 |
-| `syncthing_host_android.dart` | M4 | 按需下载并以 libsyncthing 启动 |

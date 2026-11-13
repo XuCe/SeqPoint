@@ -6,9 +6,6 @@ import '../../util/result.dart';
 /// - [FolderTransport]  本地目录：网盘同步目录、NAS 挂载盘；
 /// - [LanTransport]     局域网直连：mDNS 发现 + 设备间 HTTPS 拉取；
 /// - [RelayTransport]   自建节点的 HTTPS 文件夹 API。
-///
-/// 可选的第四种是 Syncthing 引擎（按需下载，见 seqpoint_platform），
-/// 负责跨网 P2P、中继与与用户现有 NAS 生态互通。
 abstract interface class VaultTransport {
   String get id;
 

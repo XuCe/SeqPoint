@@ -15,7 +15,7 @@ import hotkey_manager_macos
 import mobile_scanner
 import native_adaptive_toolbox
 import package_info_plus
-import record_macos
+import record_darwin
 import screen_retriever_macos
 import shared_preferences_foundation
 import speech_to_text
@@ -33,7 +33,7 @@ func RegisterGeneratedPlugins(registry: FlutterPluginRegistry) {
   MobileScannerPlugin.register(with: registry.registrar(forPlugin: "MobileScannerPlugin"))
   NativeAdaptiveToolboxPlugin.register(with: registry.registrar(forPlugin: "NativeAdaptiveToolboxPlugin"))
   FPPPackageInfoPlusPlugin.register(with: registry.registrar(forPlugin: "FPPPackageInfoPlusPlugin"))
-  RecordMacOsPlugin.register(with: registry.registrar(forPlugin: "RecordMacOsPlugin"))
+  RecordDarwinPlugin.register(with: registry.registrar(forPlugin: "RecordDarwinPlugin"))
   ScreenRetrieverMacosPlugin.register(with: registry.registrar(forPlugin: "ScreenRetrieverMacosPlugin"))
   SharedPreferencesPlugin.register(with: registry.registrar(forPlugin: "SharedPreferencesPlugin"))
   SpeechToTextPlugin.register(with: registry.registrar(forPlugin: "SpeechToTextPlugin"))

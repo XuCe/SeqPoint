@@ -5,7 +5,8 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter/services.dart';
-import '../settings/hosted_setup.dart';
+import '../settings/sync_settings_page.dart';
+import '../sync/device_join_link.dart';
 import '../sync/hosted_invite.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:seqpoint_core/seqpoint_core.dart';
@@ -22,7 +23,6 @@ import '../mobile/today_page.dart';
 import '../shared/item_editor_page.dart';
 import '../theme/seq_theme.dart';
 import '../platform/secure_secret_store.dart';
-import '../platform/syncthing_engine_host.dart';
 import '../sync/app_sync_service.dart';
 import '../sync/sync_reconciliation.dart';
 import '../sync/sync_pairing_page.dart';
@@ -142,8 +142,6 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
     final root = Directory('${directory.path}/sync-vault');
     _sync = widget.syncFactory?.call(boot.db, root, reconciliation.afterRemoteChange) ??
         AppSyncService(db: boot.db, root: root, secrets: const SecureSecretStore(),
-            engineHost: SyncthingEngineHost(home: Directory('${directory.path}/syncthing-engine'),
-                secrets: const SecureSecretStore()),
             onCommittedChange: reconciliation.afterRemoteChange);
     unawaited(_sync!.startAutomatic());
   }
@@ -342,7 +340,7 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
     try {
       final pending = await _gatewayChannel.invokeMethod<bool>('take');
       if (pending == true && nav.mounted) {
-        unawaited(nav.push<void>(MaterialPageRoute(builder: (_) => const HostedSetup())));
+        unawaited(nav.push<void>(MaterialPageRoute(builder: (_) => const SyncSettingsPage())));
       }
     } on MissingPluginException { return; }
   }
@@ -459,7 +457,7 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
     const origin = String.fromEnvironment('HOSTED_ORIGIN');
     var name = settings.name ?? '';
     if (name == '/paste' || name == 'seqpoint-gateway://open/paste') {
-      return MaterialPageRoute<void>(builder: (_) => const HostedSetup());
+      return MaterialPageRoute<void>(builder: (_) => const SyncSettingsPage());
     }
     if (name.length > 4096) return null;
     // Flutter removes the authority from warm link events. The gateway sends
@@ -469,14 +467,16 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
     if (route?.path == '/invite' && payload != null) {
       try {
         final link = utf8.decode(base64Url.decode(base64Url.normalize(payload)));
-        if (!HostedInvite.parse(link).gateway) return null;
-        return MaterialPageRoute<void>(builder: (_) => HostedSetup(link: link));
+        if (!DeviceJoinLink.looksLike(link) && !HostedInvite.parse(link).gateway) return null;
+        return MaterialPageRoute<void>(builder: (_) => SyncSettingsPage(initialLink: link));
       } on FormatException { return null; }
     }
     if (origin.isEmpty) return null;
-    if (name.startsWith('$origin/invite#')) name = name.substring(origin.length);
-    if (!name.startsWith('/invite#')) return null;
-    return MaterialPageRoute<void>(builder: (_) => HostedSetup(link: '$origin$name'));
+    if (name.startsWith('$origin/invite#') || name.startsWith('$origin/join#')) {
+      name = name.substring(origin.length);
+    }
+    if (!name.startsWith('/invite#') && !name.startsWith('/join#')) return null;
+    return MaterialPageRoute<void>(builder: (_) => SyncSettingsPage(initialLink: '$origin$name'));
   }
 
   Widget _home() {

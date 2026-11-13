@@ -1,7 +1,7 @@
 name: seqpoint_app
 description: 序点 SeqPoint —— 让每件事，都有顺序。
 publish_to: none
-version: 0.2.9+11
+version: 0.2.10+12
 
 environment:
   sdk: ^3.13.0
@@ -61,4 +61,3 @@ flutter:
     - shorebird.yaml
     - assets/tray/
     - assets/brand/logo.png
-    - assets/licenses/syncthing.txt

@@ -83,35 +83,6 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: ./.github/actions/syncthing
-        with:
-          platform: ${{ inputs.platform }}
-      - name: 复用 Android 正式基线中的 Go 动态库
-        if: inputs.platform == 'android'
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          tag="v${RELEASE_VERSION%+*}"
-          git fetch --depth=1 origin "refs/tags/$tag:refs/tags/$tag"
-          version=$(git show "$tag:apps/seqpoint_app/pubspec.yaml" | sed -n 's/^version: //p')
-          test "$version" = "$RELEASE_VERSION"
-          git diff --exit-code "$tag" HEAD -- native/syncthing .github/actions/syncthing
-
-          # gomobile 重新编译会改变 Go build ID 和行号表。保留本次生成的 Java
-          # 绑定，仅将 Go 动态库替换为基线发布的字节，再交给 Shorebird 校验。
-          scratch=$(mktemp -d)
-          apk="seqpoint-$tag-android.apk"
-          gh release download "$tag" --pattern "$apk" --pattern SHA256SUMS.txt --dir "$scratch"
-          aar="$PWD/native/syncthing/artifacts/seqpoint-syncthing.aar"
-          cd "$scratch"
-          grep -F "  $apk" SHA256SUMS.txt | sha256sum --check --strict
-          for abi in arm64-v8a armeabi-v7a; do
-            mkdir -p "jni/$abi"
-            unzip -p "$apk" "lib/$abi/libgojni.so" > "jni/$abi/libgojni.so"
-            zip -q "$aar" "jni/$abi/libgojni.so"
-          done
       - name: 复用 Android 基线签名
         if: inputs.platform == 'android'
         env:

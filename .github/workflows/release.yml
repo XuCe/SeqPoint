@@ -30,7 +30,6 @@ jobs:
     name: 检查与测试
     runs-on: ubuntu-latest
     env:
-      SEQPOINT_SYNCTHING_BIN: ${{ github.workspace }}/native/syncthing/artifacts/syncthing
       SEQPOINT_NODE_BINARY: ${{ github.workspace }}/seqpoint-node-test
     steps:
       - uses: actions/checkout@v4
@@ -56,16 +55,10 @@ jobs:
           channel: stable
           cache: true
 
-      - uses: ./.github/actions/syncthing
+      - uses: actions/setup-go@v5
         with:
-          platform: linux
-      - name: 校验原生许可资产
-        run: |
-          python3 native/syncthing/collect_licenses.py
-          git diff --exit-code -- apps/seqpoint_app/assets/licenses/syncthing.txt
-      - name: 原生引擎测试
-        working-directory: native/syncthing
-        run: go test -tags noassets ./mobile && go vet -tags noassets ./...
+          go-version-file: node/go.mod
+          cache: false
       - name: 节点测试与集成测试程序
         working-directory: node
         run: go test ./... && go build -o "$SEQPOINT_NODE_BINARY" .
@@ -121,10 +114,6 @@ jobs:
       - uses: shorebirdtech/setup-shorebird@v1
         with:
           cache: true
-
-      - uses: ./.github/actions/syncthing
-        with:
-          platform: android
 
       - name: 注入发布签名
         # 正式发布必须签名；预演允许未配置签名时编译验证。
@@ -214,9 +203,6 @@ jobs:
       - uses: shorebirdtech/setup-shorebird@v1
         with:
           cache: true
-      - uses: ./.github/actions/syncthing
-        with:
-          platform: ios
       - name: 编译未签名归档（不上传基线）
         working-directory: apps/seqpoint_app
         env:
@@ -250,10 +236,6 @@ jobs:
       - uses: shorebirdtech/setup-shorebird@v1
         with:
           cache: true
-
-      - uses: ./.github/actions/syncthing
-        with:
-          platform: macos
 
       - name: 准备 macOS 自签名身份
         env:
@@ -380,9 +362,6 @@ jobs:
           channel: stable
           cache: true
 
-      - uses: ./.github/actions/syncthing
-        with:
-          platform: windows
       - run: dart pub get
 
       - name: Windows 便签真实开窗与关闭回归
@@ -473,9 +452,6 @@ jobs:
           "$RUNNER_TEMP/flutter/bin/flutter" --version
           "$RUNNER_TEMP/flutter/bin/flutter" precache --linux
 
-      - uses: ./.github/actions/syncthing
-        with:
-          platform: linux
       - run: dart pub get
 
       - name: 构建
@@ -527,9 +503,10 @@ jobs:
           body: |
             ## 本版本
 
-            - Android 安装包补齐 SQLite 原生库，并增加两种 ARM 架构的原生库完整性检查。
-            - 修复 Windows 便签编辑器偶尔将拼音与选定汉字一起写入正文的问题，增加不同输入时序的回归测试。
-            - 编辑事项标题会同步更新来源便签，轻微修改正文会保留事项期限和完成状态，删除来源行会同时移除关联事项。
+            - 设备通过序点同步网关交换端到端加密的数据，移除内嵌 Syncthing 引擎和旧局域网配对入口。
+            - 已连接设备可生成十分钟有效的一次性加入链接，新设备扫码或粘贴链接即可加入。
+            - 简化「设备与同步」设置，支持连接重试、设备撤销及同步恢复。
+            - 使用「添加设备」前请同时更新本版本附带的同步网关，并沿用已有数据卷。已连接网关的设备可继续使用；仅使用旧局域网配对的设备请按设备同步说明迁移。
 
             跨设备使用请参阅[设备同步说明](https://github.com/XuCe/SeqPoint/blob/${{ github.ref_name }}/docs/device-sync.md)和[群晖网关指南](https://github.com/XuCe/SeqPoint/blob/${{ github.ref_name }}/node/gateway-deploy/README.md)。
 

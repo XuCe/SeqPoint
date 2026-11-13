@@ -28,6 +28,7 @@ type gateway struct {
 	registry          gatewayRegistry
 	registryFailed    bool
 	nodes             map[string]*Node
+	pairs             pairMailboxes
 	store             *Node
 	origin, directory string
 }

@@ -123,7 +123,6 @@ void main() {
     ItemRepository(a.db).insert(Item(id:'before-invite',title:'首台设备的已有事项',
       status:ItemStatus.todo,priority:Priority.p4,source:ItemSource.manual,
       createdAt:DateTime.now().toUtc(),updatedAt:DateTime.now().toUtc()));
-    expect(a.service.syncthingSupported,isFalse);
     await expectLater(a.service.enableHosted('${expected.origin}/invite#gw.${'0' * 64}'), throwsFormatException);
     expect(a.service.hasVault,isFalse);
     await a.service.enableHosted(link);
@@ -167,6 +166,78 @@ void main() {
     await expectLater(b.service.syncRelay(),throwsStateError);
   },skip:gatewayLink==null?'requires disposable HTTPS gateway':false);
 
+  final gatewayAdmin = Platform.environment['SEQPOINT_TEST_GATEWAY_ADMIN'];
+  test('gateway join link adds a second device through the mailbox and syncs both ways', () async {
+    final admin = gatewayAdmin!, password = Platform.environment['SEQPOINT_TEST_GATEWAY_PASSWORD']!;
+    final pemPath = Platform.environment['SEQPOINT_TEST_GATEWAY_PEM'];
+    final http = HttpClient();
+    late String invite;
+    try {
+      final request = await http.postUrl(Uri.parse(admin));
+      request.headers.set('Authorization', 'Basic ${base64Encode(utf8.encode('admin:$password'))}');
+      request.headers.contentType = ContentType('application', 'x-www-form-urlencoded');
+      request.write('action=invite');
+      final page = await (await request.close()).transform(utf8.decoder).join();
+      invite = RegExp(r'https?://[^"<\s]+/invite#gw\.[0-9a-f]{64}').firstMatch(page)!.group(0)!;
+    } finally { http.close(force: true); }
+    final origin = Uri.parse(invite).origin;
+    if (pemPath != null && origin.startsWith('https://')) {
+      final original = HttpOverrides.current;
+      HttpOverrides.global = _TestGatewayTrust(Uri.parse(origin), (await File(pemPath).readAsString()).trim());
+      addTearDown(() => HttpOverrides.global = original);
+    }
+    SharedPreferences.setMockInitialValues({});
+    final a = await node(11), b = await node(12), c = await node(13);
+    Item item(String id, String title) => Item(id: id, title: title, status: ItemStatus.todo,
+        priority: Priority.p4, source: ItemSource.manual,
+        createdAt: DateTime.now().toUtc(), updatedAt: DateTime.now().toUtc());
+    ItemRepository(a.db).insert(item('host-before', '首台设备已有事项'));
+    ItemRepository(b.db).insert(item('guest-before', '新设备加入前的事项'));
+
+    await expectLater(a.service.connectWithLink('https://example.test/somewhere'), throwsFormatException);
+    await a.service.connectWithLink(invite);
+    expect(await a.service.gatewayOrigin(), origin);
+    await a.service.syncRelay();
+
+    final adding = a.service.startAddDevice();
+    addTearDown(adding.cancel);
+    for (var i = 0; adding.stage == AddDeviceStage.preparing && i < 100; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    expect(adding.stage, AddDeviceStage.waiting, reason: adding.error);
+    final join = adding.link.toString();
+    expect(join, startsWith('$origin/join#'));
+    expect(join.length, lessThan(origin.length + 60));
+
+    final steps = <String>[];
+    await b.service.connectWithLink(join, onProgress: steps.add);
+    expect(steps, containsAllInOrder(['等待已连接设备确认', '正在连接同步服务器']));
+    expect(await b.service.gatewayOrigin(), origin);
+    expect(b.service.relayVaultId, a.service.relayVaultId);
+    for (var i = 0; adding.stage != AddDeviceStage.done && i < 100; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+    }
+    expect(adding.stage, AddDeviceStage.done, reason: adding.error);
+    expect(adding.joinedDevice, b.service.identity!.deviceId);
+    expect(a.service.verifiedPeers.single.deviceId, b.service.identity!.deviceId);
+    expect(b.service.verifiedPeers.single.deviceId, a.service.identity!.deviceId);
+
+    await a.service.syncRelay();
+    await b.service.syncRelay();
+    expect(ItemRepository(b.db).byId('host-before')?.title, '首台设备已有事项');
+    ItemRepository(b.db).insert(item('guest-after', '新设备加入后的事项'));
+    await b.service.syncRelay();
+    await a.service.syncRelay();
+    expect(ItemRepository(a.db).byId('guest-before')?.title, '新设备加入前的事项');
+    expect(ItemRepository(a.db).byId('guest-after')?.title, '新设备加入后的事项');
+
+    // 链接只能用一次；第三台设备不会被误加入。
+    await expectLater(c.service.connectWithLink(join), throwsFormatException);
+    expect(c.service.hasVault, isFalse);
+    expect(await c.service.gatewayOrigin(), isNull);
+  }, timeout: const Timeout(Duration(minutes: 3)),
+      skip: gatewayAdmin == null ? 'requires disposable gateway (scripts/sync_acceptance/verify_gateway.py)' : false);
+
   test('relay address persists per vault and invalid origins are rejected', () async {
     SharedPreferences.setMockInitialValues({});
     final a = await node(1), b = await node(2);
@@ -185,7 +256,7 @@ void main() {
     expect(await a.service.loadRelayEndpoint(), 'http://sync.example.com');
     await a.service.saveRelayEndpoint('');
     await expectLater(a.service.syncRelay(), throwsStateError);
-    expect(a.service.relayMessage, contains('请先保存节点地址'));
+    expect(a.service.relayMessage, contains('请先连接同步服务器'));
   });
 
   test('relay configuration exports current paired public keys only', () async {

@@ -1,15 +1,12 @@
 /// 设备身份。没有传统账号：Vault 就是账号。
 ///
-/// 两层身份：
-/// - 应用密钥对（Ed25519 签名 + X25519 协商）：签成员变更、段、撤销事件；
-/// - Syncthing Device ID（可选）：仅当启用引擎时用于传输层鉴权。
+/// 身份由应用密钥对（Ed25519 签名 + X25519 协商）承载：签成员变更、段、撤销事件。
 class DeviceIdentity {
   const DeviceIdentity({
     required this.deviceId,
     required this.name,
     required this.signingPublicKey,
     required this.exchangePublicKey,
-    this.syncthingDeviceId,
     this.isSelf = false,
     this.revokedAt,
     required this.addedAt,
@@ -23,9 +20,6 @@ class DeviceIdentity {
 
   final String signingPublicKey;
   final String exchangePublicKey;
-
-  /// 启用 Syncthing 引擎后填入，未启用为 null。
-  final String? syncthingDeviceId;
 
   final bool isSelf;
   final DateTime? revokedAt;

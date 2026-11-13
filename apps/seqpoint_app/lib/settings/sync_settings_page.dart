@@ -1,24 +1,30 @@
+import 'dart:async';
 import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:seqpoint_core/seqpoint_core.dart';
+
 import '../app/app_scope.dart';
+import '../sync/add_device_page.dart';
 import '../sync/app_sync_service.dart';
-import '../sync/sync_pairing_page.dart';
-import '../sync/lan_pairing_page.dart';
+import '../sync/join_qr_scan_page.dart';
 import '../sync/sync_membership_controller.dart';
+import '../sync/sync_pairing_page.dart';
 import '../theme/seq_tokens.dart';
 import 'settings_scaffold.dart';
-import 'relay_settings.dart';
-import 'syncthing_settings.dart';
 
 /// 设备与同步。
 ///
-/// 顶部是设备卡（本机 + 已配对设备 + 添加设备），中间是两种同步方式：
-/// 局域网直连与云中转；身份、手动配对、手动连接和 Syncthing 收进"高级"。
-/// 口径必须诚实：没有可达副本时绝不显示"已同步"。
+/// 只有一种同步：所有设备经序点同步网关交换加密数据。
+/// 第一台设备粘贴服务器邀请；其他设备在已连接设备上点「添加设备」，扫码或粘贴链接加入。
+/// 口径必须诚实：没有连接服务器时绝不显示"已同步"。
 class SyncSettingsPage extends StatefulWidget {
-  const SyncSettingsPage({super.key, this.service});
+  const SyncSettingsPage({super.key, this.service, this.initialLink = ''});
   final AppSyncService? service;
+
+  /// 从邀请或加入链接唤起时预填。
+  final String initialLink;
 
   @override
   State<SyncSettingsPage> createState() => _SyncSettingsPageState();
@@ -27,31 +33,90 @@ class SyncSettingsPage extends StatefulWidget {
 class _SyncSettingsPageState extends State<SyncSettingsPage> {
   final _name = TextEditingController(text: '此设备');
   final _identityForm = GlobalKey<FormState>();
-  final _connectionForm = GlobalKey<FormState>();
-  final _host = TextEditingController(), _port = TextEditingController();
-  String? _peerId;
+  late final _link = TextEditingController(text: widget.initialLink);
   bool _working = false, _confirming = false;
-  String? _error;
+  String? _error, _progress, _origin;
+  bool _pending = false;
+  int? _loadedRevision;
+  AppSyncService? _loadedFor;
 
   @override
   void dispose() {
     _name.dispose();
-    _host.dispose(); _port.dispose();
+    _link.dispose();
     super.dispose();
   }
 
-  Future<void> _run(AppSyncService service, Future<void> Function() action) async {
-    if (_working || service.busy ||
-        (context.dependOnInheritedWidgetOfExactType<AppScope>()?.restoring ?? false)) {
-      return;
-    }
+  bool get _restoring =>
+      context.dependOnInheritedWidgetOfExactType<AppScope>()?.restoring ?? false;
+
+  /// 服务器地址和待登记状态存放在异步存储里，按服务的设置版本刷新。
+  void _reload(AppSyncService service) {
+    final revision = Object.hash(service.relaySettingsRevision, service.relayVaultId,
+        service.identity?.deviceId);
+    if (identical(_loadedFor, service) && _loadedRevision == revision) return;
+    _loadedFor = service;
+    _loadedRevision = revision;
+    unawaited(() async {
+      String? origin;
+      var pending = false;
+      try {
+        origin = await service.gatewayOrigin();
+        pending = await service.hasPendingEnrollment();
+      } catch (_) {}
+      if (mounted) setState(() { _origin = origin; _pending = pending; });
+    }());
+  }
+
+  Future<void> _run(AppSyncService service, Future<void> Function() action,
+      {String Function(Object error)? message}) async {
+    if (_working || service.busy || _restoring) return;
     setState(() { _working = true; _error = null; });
-    try { await action(); }
-    catch (_) {
-      if (mounted) setState(() => _error = service.error ?? '操作未完成，请检查设备状态后重试');
+    try {
+      await action();
+    } catch (error) {
+      if (mounted) {
+        setState(() => _error = message?.call(error) ?? service.error ?? '操作未完成，请检查设备状态后重试');
+      }
     } finally {
-      if (mounted) setState(() => _working = false);
+      if (mounted) setState(() { _working = false; _progress = null; _loadedRevision = null; });
     }
+  }
+
+  String _linkError(Object error) => error is FormatException
+      ? error.message
+      : error is SocketException || error is TimeoutException || error is HttpException
+      ? '无法连接同步服务器，请检查网络和链接中的地址'
+      : '连接未完成，请检查链接后重试';
+
+  Future<void> _connect(AppSyncService service) => _run(service, () async {
+    final link = _link.text.trim();
+    if (link.isEmpty) throw const FormatException('请先粘贴链接或扫一扫');
+    await service.connectWithLink(link, cancelled: () => !mounted,
+        onProgress: (step) { if (mounted) setState(() => _progress = step); });
+    if (!mounted) return;
+    _link.clear();
+    ScaffoldMessenger.of(context)..clearSnackBars()
+      ..showSnackBar(const SnackBar(content: Text('已连接同步服务器，正在同步')));
+    unawaited(service.syncRelay().then<void>((_) {}, onError: (Object _) {}));
+  }, message: _linkError);
+
+  Future<void> _paste() async {
+    final clip = await Clipboard.getData(Clipboard.kTextPlain);
+    final text = clip?.text?.trim() ?? '';
+    if (!mounted) return;
+    setState(() {
+      _link.text = text;
+      _error = text.isEmpty ? '剪贴板是空的' : null;
+    });
+  }
+
+  Future<void> _scan(AppSyncService service) async {
+    final code = await Navigator.of(context)
+        .push<String>(MaterialPageRoute(builder: (_) => const JoinQrScanPage()));
+    if (code == null || !mounted) return;
+    _link.text = code;
+    await _connect(service);
   }
 
   Future<void> _confirmRevoke(AppSyncService service, MemberKeys peer, Object version) =>
@@ -69,13 +134,15 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
         FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('确认撤销'))]));
     } finally { _confirming = false; }
     if (confirmed != true || !mounted) return;
-    final restoring = context.dependOnInheritedWidgetOfExactType<AppScope>()?.restoring ?? false;
-    if (restoring || service.busy || service.requiresNewIdentity || service.hasMembershipConflict ||
+    if (_restoring || service.busy || service.requiresNewIdentity || service.hasMembershipConflict ||
         !identical(version, service.membershipVersion)) {
       setState(() => _error = '成员状态已变化，请重新核对后再撤销');
       return;
     }
     await service.revokePeer(peer, expectedVersion: version);
+    if (_origin != null) {
+      try { await service.syncRelay(); } catch (_) {}
+    }
     if (mounted) {
       ScaffoldMessenger.of(context)..clearSnackBars()
         ..showSnackBar(const SnackBar(content: Text('设备已撤销')));
@@ -87,33 +154,16 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     final scope = context.dependOnInheritedWidgetOfExactType<AppScope>();
     final service = widget.service ?? scope?.sync;
     if (service != null) {
-      return ListenableBuilder(listenable: service, builder: (context, _) =>
-          _settings(service, restoring: scope?.restoring ?? false));
+      return ListenableBuilder(listenable: service, builder: (context, _) {
+        _reload(service);
+        return _settings(service, restoring: scope?.restoring ?? false);
+      });
     }
     return const SettingsScaffold(
       title: '设备与同步',
-      footnote: '当前尚未启用设备同步。配对、密钥保存及连接完成后，'
-          '才会通过加密文件交换数据；没有可达副本时不会显示已同步。'
-          '完成验证的历史检查点可用于恢复离线设备。',
+      footnote: '当前尚未启用设备同步。',
       children: [
-        _DeviceCard(
-          status: '仅本机',
-          detail: '此版本尚未接入设备同步服务',
-          peers: [],
-        ),
-        SettingsLabel('同步方式'),
-        SettingsCard(
-          icon: Icons.wifi_rounded,
-          title: '局域网直连',
-          subtitle: '同一网络里的设备直接交换，不经过任何服务器',
-          trailing: Switch(value: false, onChanged: null),
-        ),
-        SettingsCard(
-          icon: Icons.cloud_outlined,
-          title: '云中转',
-          subtitle: '不在同一网络也能同步，数据加密后暂存在节点上',
-          trailing: Switch(value: false, onChanged: null),
-        ),
+        _DeviceCard(status: '仅本机', detail: '此版本尚未接入设备同步服务', peers: []),
       ],
     );
   }
@@ -121,105 +171,200 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   Widget _settings(AppSyncService service, {required bool restoring}) {
     final disabled = restoring || _working || service.busy;
     final recovering = service.requiresNewIdentity;
-    final pending = service.pendingIdentity;
     final conflicted = service.hasMembershipConflict;
+    final connected = _origin != null && service.canSync;
     final peers = service.verifiedPeers, version = service.membershipVersion;
-    final addDevice = disabled || recovering || conflicted ? null : () => Navigator.of(context).push<void>(
-        MaterialPageRoute(builder: (_) => LanPairingPage(service: service)));
     Widget peerRow(MemberKeys peer) => _PeerRow(
           deviceId: peer.deviceId,
           onRevoke: disabled || recovering || conflicted || version == null
               ? null : () => _confirmRevoke(service, peer, version),
         );
+    final message = _error ?? service.error;
     return SettingsScaffold(title: '设备与同步',
-      footnote: '配对后通过加密连接交换数据。本机上传不代表对端已收到。'
-        '旧日志在检查点验证完成后回收，离线设备可从检查点继续同步。', children: [
-      if (_error ?? service.error case final message?)
+      footnote: '笔记在本机加密后经同步服务器交换，服务器看不到内容。'
+        '第一台设备粘贴服务器邀请；以后的设备在已连接的设备上点「添加设备」，扫码或粘贴链接即可。',
+      children: [
+      if (message != null)
         ListTile(leading: const Icon(Icons.error_outline), title: Text(message)),
+      if (restoring) const ListTile(title: Text('正在恢复备份，同步操作暂不可用')),
+      if (_working && !_confirming) const LinearProgressIndicator(),
+      if (service.prepared && !recovering &&
+          (service.error != null || service.membershipState == SyncMembershipControllerState.blocked))
+        ListTile(title: const Text('重新核验已保存的安全记录'),
+          trailing: OutlinedButton(onPressed: disabled ? null : () => _run(service,
+            () => service.prepare(service.identity?.name ?? _name.text.trim())),
+            child: const Text('重新读取安全记录'))),
       if (!recovering && !conflicted) ...[
-        _DeviceCard(
-          status: peers.isEmpty ? '仅本机' : '已和 ${peers.length} 台设备配对',
-          detail: peers.isEmpty ? '数据只在这台设备上；配对后会自动互相同步'
-              : '修改在已配对设备之间加密交换',
+        if (service.hasVault || connected) _DeviceCard(
+          status: connected ? '已连接同步服务器' : '尚未连接同步服务器',
+          detail: connected
+              ? (peers.isEmpty ? '${_host(_origin!)} · 添加设备后自动互相同步'
+                  : '${_host(_origin!)} · ${peers.length + 1} 台设备自动同步')
+              : '下方粘贴链接后开始同步',
+          online: connected,
           thisDevice: service.identity?.name,
           peers: [for (final peer in peers) peerRow(peer)],
-          onAdd: addDevice,
+          onAdd: connected && !disabled ? () => Navigator.of(context).push<void>(
+              MaterialPageRoute(builder: (_) => AddDevicePage(service: service))) : null,
         ),
-        const SettingsLabel('同步方式'),
-        SettingsCard(
-          icon: Icons.wifi_rounded,
-          title: '局域网直连',
-          subtitle: '同一网络里的设备直接交换，不经过任何服务器',
-          highlighted: service.lanEnabled,
-          children: [
-            SwitchListTile(value: service.lanEnabled,
-              onChanged: disabled || !service.prepared ? null : (value) =>
-                _run(service, () => service.setLanEnabled(value)),
-              title: const Text('局域网自动双向同步'),
-              subtitle: const Text('同一网络中的已配对设备自动交换修改')),
-            for (final peer in service.lanPeers) ListTile(
-              leading: const Icon(Icons.devices, size: 20), title: Text('设备 ${peer.deviceId.substring(0, 8)}'),
-              subtitle: Text('${peer.host}:${peer.port} · ${service.lanEnabled ? '自动同步已开启' : '已暂停'}')),
-          ],
-        ),
-        RelaySettings(key: ValueKey(service.relayVaultId), service: service, disabled: disabled),
+        if (connected) _syncCard(service, disabled)
+        else if (_pending) _retryCard(service, disabled)
+        else _connectCard(service, disabled),
       ],
-      ExpansionTile(key: ValueKey('advanced-$recovering-$conflicted'),
-        initiallyExpanded: recovering || conflicted,
-        tilePadding: const EdgeInsets.symmetric(horizontal: 26),
-        title: Text(recovering || conflicted ? '恢复同步' : '高级同步设置',
-          style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
-        subtitle: recovering || conflicted ? null
-          : const Text('本机身份、手动配对、手动连接、Syncthing', style: TextStyle(fontSize: 12.5)),
-        children: [
-      SettingsGroup(label: '本机', children: [
-        ListTile(title: Text(service.status)),
-        if (restoring) const ListTile(title: Text('正在恢复备份，同步操作暂不可用')),
-        if (recovering) const ListTile(title: Text('恢复后需要新设备身份'),
-          subtitle: Text('旧身份不再用于发布。先生成新身份，再向可信设备重新配对；旧密钥保留。')),
-        if (disabled && !_confirming) const LinearProgressIndicator(),
-        if (!service.prepared || (recovering && !service.hasPendingIdentityRecovery)) Padding(
-          padding: const EdgeInsets.all(16),
-          child: Form(key: _identityForm, child: Column(children: [
-            TextFormField(controller: _name, enabled: !disabled, maxLength: 64,
-              key: const ValueKey('sync-device-name'),
-              decoration: const InputDecoration(labelText: '本机名称'),
-              validator: (value) => value == null || value.trim().isEmpty ? '请输入本机名称' : null),
-            FilledButton(onPressed: disabled ? null : () {
-              if (_identityForm.currentState!.validate()) {
-                _run(service, () async {
-                  if (recovering && service.prepared) {
-                    await service.beginIdentityRecovery(_name.text.trim());
-                  } else {
-                    await service.prepare(_name.text.trim());
-                  }
-                });
-              }
-            }, child: Text(recovering && service.prepared ? '生成新身份' : '准备本机')),
-          ])),
+      if (recovering || conflicted) _recovery(service, disabled, peers, peerRow),
+    ]);
+  }
+
+  static String _host(String origin) => Uri.tryParse(origin)?.authority ?? origin;
+
+  Widget _syncCard(AppSyncService service, bool disabled) {
+    final round = service.lastRound;
+    return SettingsCard(
+      icon: Icons.sync_rounded,
+      title: '同步',
+      subtitle: service.relayMessage ?? (round == null ? service.status
+          : '上次：上传 ${round.pushed} 条 · 合入 ${round.pulled} 条'),
+      highlighted: service.automaticEnabled,
+      children: [
+        SwitchListTile(value: service.automaticEnabled,
+          onChanged: disabled ? null : (value) => _run(service, () => service.setAutomaticEnabled(value)),
+          title: const Text('自动同步'),
+          subtitle: const Text('修改后自动上传，打开应用时定期拉取')),
+        SwitchListTile(value: service.mediaSyncEnabled,
+          onChanged: disabled ? null : (value) => _run(service, () => service.setMediaSyncEnabled(value)),
+          title: const Text('同步附件和录音'),
+          subtitle: const Text('移动数据下也会同步，分块续传')),
+        if (service.mediaPending) const ListTile(
+          leading: Icon(Icons.cloud_upload_outlined),
+          title: Text('仍有附件待传'),
+          subtitle: Text('已完成的分块会保留，下一轮继续')),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
+            icon: const Icon(Icons.sync_rounded, size: 18),
+            label: Text(_working ? '同步中…' : '立即同步'),
+            onPressed: disabled ? null : () => _run(service, () async { await service.syncRelay(); },
+                message: (_) => service.relayMessage ?? '同步未完成，请检查网络后重试'),
+          )),
         ),
-        if (recovering && service.hasPendingIdentityRecovery && pending != null) ...[
-          ListTile(title: Text('新身份 ${pending.name}'), subtitle: SelectableText(pending.deviceId)),
-          ListTile(title: const Text('用新身份重新配对'),
-            subtitle: const Text('接收可信设备的邀请码，双方核对短码后才启用同步'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: disabled ? null : () => Navigator.of(context).push<void>(
-              MaterialPageRoute(builder: (_) => SyncPairingPage(service: service, identityRecovery: true)))),
+      ],
+    );
+  }
+
+  Widget _retryCard(AppSyncService service, bool disabled) => SettingsCard(
+        icon: Icons.cloud_off_outlined,
+        title: '还差一步：连接同步服务器',
+        subtitle: '本机已加入资料库，但登记到同步服务器时没有完成（可能是网络中断）。',
+        highlighted: true,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+            child: Align(alignment: Alignment.centerLeft, child: FilledButton(
+              onPressed: disabled ? null : () => _run(service, () async {
+                await service.retryEnrollment();
+                unawaited(service.syncRelay().then<void>((_) {}, onError: (Object _) {}));
+              }, message: _linkError),
+              child: const Text('重试连接'),
+            )),
+          ),
         ],
-        if (service.prepared && !recovering) ...[
-          ListTile(title: Text(service.identity?.name ?? _name.text),
-            subtitle: const Text('安全身份已准备；传输结果见最近一轮')),
-          if (service.error != null || service.membershipState == SyncMembershipControllerState.blocked)
-            ListTile(title: const Text('重新核验已保存的安全记录'),
-              trailing: OutlinedButton(onPressed: disabled ? null : () => _run(service,
-                () => service.prepare(service.identity?.name ?? _name.text.trim())),
-                child: const Text('重新读取安全记录'))),
-          if (!service.hasVault) ListTile(
-            title: const Text('首次设置：创建同步空间'),
-            subtitle: const Text('已有另一台设备？直接加入邀请，无需在此创建'),
-            trailing: OutlinedButton(onPressed: disabled ? null : () =>
-              _run(service, service.newVault), child: const Text('创建同步空间'))),
-          if (conflicted) ...[
+      );
+
+  Widget _connectCard(AppSyncService service, bool disabled) {
+    final mobile = Platform.isAndroid || Platform.isIOS;
+    return SettingsCard(
+      icon: Icons.cloud_outlined,
+      title: '连接同步服务器',
+      subtitle: '第一台设备：粘贴服务器管理页生成的邀请链接。\n'
+          '其他设备：在已连接的设备上点「添加设备」，${mobile ? '扫它显示的二维码' : '把它显示的链接复制过来'}。',
+      highlighted: true,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+          child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            TextField(
+              key: const ValueKey('sync-link'),
+              controller: _link,
+              enabled: !disabled,
+              autocorrect: false,
+              enableSuggestions: false,
+              keyboardType: TextInputType.url,
+              onChanged: (_) { if (_error != null) setState(() => _error = null); },
+              onSubmitted: (_) => _connect(service),
+              decoration: const InputDecoration(labelText: '邀请链接或加入链接',
+                  hintText: 'http://… /invite#… 或 /join#…'),
+            ),
+            const SizedBox(height: 12),
+            Wrap(spacing: 8, runSpacing: 8, children: [
+              FilledButton(
+                onPressed: disabled ? null : () => _connect(service),
+                child: Text(_working ? '连接中…' : '连接'),
+              ),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.content_paste_rounded, size: 18),
+                label: const Text('粘贴'),
+                onPressed: disabled ? null : _paste,
+              ),
+              if (mobile) OutlinedButton.icon(
+                icon: const Icon(Icons.qr_code_scanner_rounded, size: 18),
+                label: const Text('扫一扫'),
+                onPressed: disabled ? null : () => _scan(service),
+              ),
+            ]),
+            if (_progress case final step?) Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(step, style: const TextStyle(fontSize: 13, color: SeqTokens.inkMuted)),
+            ),
+          ]),
+        ),
+      ],
+    );
+  }
+
+  /// 备份恢复或成员冲突后的处理；正常使用不会出现。
+  Widget _recovery(AppSyncService service, bool disabled, List<MemberKeys> peers,
+      Widget Function(MemberKeys) peerRow) {
+    final recovering = service.requiresNewIdentity;
+    final conflicted = service.hasMembershipConflict;
+    final pending = service.pendingIdentity;
+    return ExpansionTile(key: const ValueKey('sync-recovery'),
+      initiallyExpanded: true,
+      tilePadding: const EdgeInsets.symmetric(horizontal: 26),
+      title: const Text('恢复同步', style: TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
+      children: [
+        SettingsGroup(label: '本机', children: [
+          ListTile(title: Text(service.status)),
+          if (recovering) const ListTile(title: Text('恢复后需要新设备身份'),
+            subtitle: Text('旧身份不再用于发布。先生成新身份，再向可信设备重新配对；旧密钥保留。')),
+          if (!service.prepared || (recovering && !service.hasPendingIdentityRecovery)) Padding(
+            padding: const EdgeInsets.all(16),
+            child: Form(key: _identityForm, child: Column(children: [
+              TextFormField(controller: _name, enabled: !disabled, maxLength: 64,
+                key: const ValueKey('sync-device-name'),
+                decoration: const InputDecoration(labelText: '本机名称'),
+                validator: (value) => value == null || value.trim().isEmpty ? '请输入本机名称' : null),
+              FilledButton(onPressed: disabled ? null : () {
+                if (_identityForm.currentState!.validate()) {
+                  _run(service, () async {
+                    if (recovering && service.prepared) {
+                      await service.beginIdentityRecovery(_name.text.trim());
+                    } else {
+                      await service.prepare(_name.text.trim());
+                    }
+                  });
+                }
+              }, child: Text(recovering && service.prepared ? '生成新身份' : '准备本机')),
+            ])),
+          ),
+          if (recovering && service.hasPendingIdentityRecovery && pending != null) ...[
+            ListTile(title: Text('新身份 ${pending.name}'), subtitle: SelectableText(pending.deviceId)),
+            ListTile(title: const Text('用新身份重新配对'),
+              subtitle: const Text('接收可信设备的邀请码，双方核对短码后才启用同步'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: disabled ? null : () => Navigator.of(context).push<void>(
+                MaterialPageRoute(builder: (_) => SyncPairingPage(service: service, identityRecovery: true)))),
+          ],
+          if (service.prepared && !recovering && conflicted) ...[
             const ListTile(title: Text('成员控制发生冲突'),
               subtitle: Text('同步已暂停。重新确认新的成员控制前，不接收或发布业务。')),
             ListTile(title: const Text('恢复成员控制'),
@@ -228,72 +373,12 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
               onTap: disabled ? null : () => Navigator.of(context).push<void>(
                 MaterialPageRoute(builder: (_) => SyncPairingPage(service: service, controlRecovery: true)))),
           ],
-          if (!conflicted) ListTile(title: const Text('手动配对设备'),
-            subtitle: const Text('人工交换配对码，双方核对短码后安全保存'),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: disabled ? null : () => Navigator.of(context).push<void>(
-              MaterialPageRoute(builder: (_) => SyncPairingPage(service: service)))),
-        ],
-      ]),
-      if (peers.isNotEmpty && (recovering || conflicted))
-        SettingsGroup(label: '已验证设备', children: [for (final peer in peers) peerRow(peer)]),
-      if (service.prepared && !recovering && !conflicted) _connection(service, disabled),
-      if (service.lastRound case final round?) SettingsGroup(label: '最近一轮', children: [
-        ListTile(title: Text('本机已发布 ${round.pushed} 条 · 已合入 ${round.pulled} 条'),
-          subtitle: Text('待合并记录 ${round.pendingObjects} · 等待设备 ${round.waitingPeers.length}\n'
-            '尚无对端接收回执，不能据此确认两台设备内容一致')),
-        for (final peer in round.waitingPeers)
-          ListTile(title: const Text('等待接收的设备'), subtitle: SelectableText(peer)),
-      ]),
-      if (!recovering && !conflicted)
-        SyncthingSettings(key: ValueKey('syncthing-${service.identity?.deviceId}-${service.relayVaultId}'),
-          service: service, disabled: disabled),
-      const SizedBox(height: 8),
-      ]),
-    ]);
-  }
-
-  Widget _connection(AppSyncService service, bool disabled) {
-    final peers = service.verifiedPeers;
-    final peer = peers.any((p) => p.deviceId == _peerId) ? _peerId : peers.firstOrNull?.deviceId;
-    final canConnect = !disabled && service.canSync && peer != null;
-    return SettingsGroup(label: '手动连接', children: [
-      if (peers.isEmpty) const ListTile(title: Text('先完成配对，再连接已验证设备')),
-      if (service.listeningPort case final port?) ListTile(
-        title: Text('正在监听端口 $port'), subtitle: const Text('在另一台设备输入本机 IP 和此端口')),
-      Padding(padding: const EdgeInsets.all(16), child: Wrap(spacing: 8, runSpacing: 8, children: [
-        OutlinedButton(onPressed: disabled || !service.canSync || service.listeningPort != null
-          ? null : () => _run(service, () async {
-            await service.startServer(address: InternetAddress.anyIPv4);
-          }), child: const Text('开始局域网监听')),
-        OutlinedButton(onPressed: disabled ? null : () => _run(service, service.pause),
-          child: const Text('暂停同步')),
-      ])),
-      Padding(padding: const EdgeInsets.all(16), child: Form(key: _connectionForm,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          if (peers.isNotEmpty) DropdownButton<String>(value: peer, isExpanded: true,
-            hint: const Text('已验证的对端'),
-            items: [for (final p in peers) DropdownMenuItem(value: p.deviceId,
-              child: Text('已验证设备 ${p.deviceId.substring(0, 12)}'))],
-            onChanged: disabled ? null : (value) => setState(() => _peerId = value)),
-          TextFormField(controller: _host, enabled: canConnect,
-            key: const ValueKey('sync-host'),
-            decoration: const InputDecoration(labelText: '对端 IP 地址'),
-            validator: (value) => InternetAddress.tryParse(value?.trim() ?? '') == null
-              ? '请输入有效的 IP 地址' : null),
-          TextFormField(controller: _port, enabled: canConnect,
-            key: const ValueKey('sync-port'), keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: '对端端口'),
-            validator: (value) { final port = int.tryParse(value?.trim() ?? '');
-              return port == null || port < 1 || port > 65535 ? '端口应为 1–65535' : null; }),
-          FilledButton(onPressed: !canConnect ? null : () {
-            if (_connectionForm.currentState!.validate()) {
-              _run(service, () async { await service.syncOnce(peerDeviceId: peer,
-                host: _host.text.trim(), port: int.parse(_port.text.trim())); });
-            }
-          }, child: const Text('连接并同步一次')),
-        ]))),
-    ]);
+        ]),
+        if (peers.isNotEmpty)
+          SettingsGroup(label: '已验证设备', children: [for (final peer in peers) peerRow(peer)]),
+        const SizedBox(height: 8),
+      ],
+    );
   }
 }
 
@@ -303,12 +388,14 @@ class _DeviceCard extends StatelessWidget {
     required this.status,
     required this.detail,
     required this.peers,
+    this.online = false,
     this.thisDevice,
     this.onAdd,
   });
 
   final String status;
   final String detail;
+  final bool online;
   final String? thisDevice;
   final List<Widget> peers;
   final VoidCallback? onAdd;
@@ -326,7 +413,7 @@ class _DeviceCard extends StatelessWidget {
             child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
               Row(children: [
                 Container(width: 9, height: 9, decoration: BoxDecoration(shape: BoxShape.circle,
-                    color: peers.isEmpty ? SeqTokens.inkFaint : SeqTokens.syncDot)),
+                    color: online ? SeqTokens.syncDot : SeqTokens.inkFaint)),
                 const SizedBox(width: 10),
                 Expanded(child: Text(status, style: TextStyle(fontFamily: SeqFonts.serif.first,
                     fontFamilyFallback: SeqFonts.serif, fontSize: 18, fontWeight: FontWeight.w700))),
@@ -341,19 +428,21 @@ class _DeviceCard extends StatelessWidget {
                   caption: '本机', first: true, last: peers.isEmpty),
               for (var i = 0; i < peers.length; i++)
                 _DeviceLine.wrap(peers[i], last: i == peers.length - 1),
-              const SizedBox(height: 12),
-              Row(children: [
-                FilledButton.icon(
-                  onPressed: onAdd,
-                  style: FilledButton.styleFrom(backgroundColor: SeqTokens.ink,
-                      foregroundColor: SeqTokens.paper, minimumSize: const Size(0, 40)),
-                  icon: const Icon(Icons.qr_code_2_rounded, size: 18),
-                  label: const Text('添加设备'),
-                ),
-                const SizedBox(width: 12),
-                const Expanded(child: Text('电脑显示二维码，手机扫一扫；也可输入对方 IP:端口',
-                    style: TextStyle(fontSize: 12.5, color: SeqTokens.inkMuted))),
-              ]),
+              if (onAdd != null) ...[
+                const SizedBox(height: 12),
+                Row(children: [
+                  FilledButton.icon(
+                    onPressed: onAdd,
+                    style: FilledButton.styleFrom(backgroundColor: SeqTokens.ink,
+                        foregroundColor: SeqTokens.paper, minimumSize: const Size(0, 40)),
+                    icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                    label: const Text('添加设备'),
+                  ),
+                  const SizedBox(width: 12),
+                  const Expanded(child: Text('新设备扫码或粘贴链接即可加入，无需在同一网络',
+                      style: TextStyle(fontSize: 12.5, color: SeqTokens.inkMuted))),
+                ]),
+              ],
             ]),
           ),
         ),

@@ -115,12 +115,17 @@ extension _AppSyncPairing on AppSyncService {
     _enableBaseline();
     final invite = packet['hosted_invite'];
     if (invite is String) {
-      final parsed = HostedInvite.parse(invite);
-      if (!parsed.gateway && !syncthingSupported) return;
-      if (parsed.issuer != base64Encode(session.response.transcript.initiator.signingPublicKey)) {
-        throw const FormatException('云节点授权签名人不匹配');
-      }
-      await secrets.write('$_syncthingKey.hostedPending', invite);
+      await _rememberHostedGrant(invite, session.response.transcript.initiator);
     }
   });
+
+  /// 保存已连接设备签发的服务器登记授权，随后由 [enableHosted] 使用。
+  Future<void> _rememberHostedGrant(String invite, PairingParticipant issuer) async {
+    final parsed = HostedInvite.parse(invite);
+    if (!parsed.gateway) throw const FormatException('只支持序点同步网关');
+    if (parsed.issuer != base64Encode(issuer.signingPublicKey)) {
+      throw const FormatException('同步服务器授权签名人不匹配');
+    }
+    await secrets.write(_pendingKey!, invite);
+  }
 }

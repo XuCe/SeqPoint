@@ -9,7 +9,7 @@ apk=${1:?用法：$0 path/to/app.apk}
 listing=$(unzip -Z1 "$apk")
 missing=0
 for abi in arm64-v8a armeabi-v7a; do
-  for lib in libsqlite3.so libgojni.so; do
+  for lib in libsqlite3.so; do
     if ! grep -qx "lib/$abi/$lib" <<<"$listing"; then
       echo "✗ $apk 缺少 lib/$abi/$lib" >&2
       missing=1
@@ -17,4 +17,4 @@ for abi in arm64-v8a armeabi-v7a; do
   done
 done
 [ "$missing" -eq 0 ] || exit 1
-echo "✓ $apk 已包含 libsqlite3.so 与 libgojni.so（arm64-v8a、armeabi-v7a）"
+echo "✓ $apk 已包含 libsqlite3.so（arm64-v8a、armeabi-v7a）"
