@@ -68,7 +68,9 @@ void main() {
   test('旧行号事项不覆盖编辑后的便签原文', () async {
     final note = service.capture('原事项', title: '固定标题');
     service.lineToItem(note.id, 0);
-    service.editContent(note.id, '必须保留的新正文');
+    // 绕过 NoteService 改正文（如旧版本或同步写入），事项仍留着旧行号。
+    final notes = NoteRepository(db);
+    notes.update(notes.byId(note.id)!.copyWith(rawContent: '必须保留的新正文'));
     final output = await contents();
     expect(output, contains('必须保留的新正文'));
     expect('- [ ] 原事项'.allMatches(output), hasLength(1));

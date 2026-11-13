@@ -137,7 +137,8 @@ void main() {
           .future!;
     });
     opened = boot;
-    expect(boot!.notes.byId(note.id)?.rawContent, note.rawContent);
+    // 改事项标题会同步改写正文那一行。
+    expect(boot!.notes.byId(note.id)?.rawContent, '待办一\n重启后仍保留的标题\n待清除期限');
     expect(boot.notes.byId(note.id)?.title, note.title);
     expect(boot.items.byNote(note.id), hasLength(3));
     expect(boot.items.byId(cleared.id)?.dueAt, isNull);

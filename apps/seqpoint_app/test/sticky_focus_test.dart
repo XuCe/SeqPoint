@@ -179,13 +179,13 @@ void main() {
       await t.pumpAndSettle();
       expect(find.text('外部标题'), findsOneWidget);
       expect(find.text('继续完成并保存'), findsOneWidget);
-      expect(other.notes.byId(note.id)!.rawContent,
-        mode == '正文' ? '继续完成并保存' : '原始事项');
+      // 改事项标题同步改写正文那一行；正文里整行换掉则事项随之删除。
+      expect(other.notes.byId(note.id)!.rawContent, '继续完成并保存');
       expect(other.items.byId(item.id)!.title,
         mode == '事项' ? '继续完成并保存' : '原始事项');
       expect(other.items.byId(item.id)!.isDone, isTrue);
       expect(local.notes.active(), hasLength(1));
-      expect(local.items.byNote(note.id), hasLength(1));
+      expect(local.items.byNote(note.id), hasLength(mode == '事项' ? 1 : 0));
     });
   }
 

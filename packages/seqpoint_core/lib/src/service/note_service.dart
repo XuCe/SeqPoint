@@ -108,12 +108,17 @@ class NoteService {
     final before = note.lines;
     final after = rawText.split('\n');
     final bound = Note.itemsByLine(before, items);
-    final moved = movedNoteLines(before, after);
+    final moved = movedNoteLines(before, after,
+        similar: {for (final e in bound.entries) e.key});
     for (final item in items) {
       final old = item.lineIndex!;
-      final index = bound[old]?.id == item.id ? moved[old] : null;
+      final linked = bound[old]?.id == item.id;
+      final index = linked ? moved[old] : null;
       if (index == null) {
-        _items.update(item.copyWith(clearLineIndex: true, updatedAt: _clock.now()));
+        // 正文里删掉或换掉了这一行：事项跟着删除，不留下正文里没有的待办。
+        // 本来就没对上行的旧事项只解除行号，保持原样。
+        _items.update(item.copyWith(clearLineIndex: !linked,
+            deletedAt: linked ? _clock.now() : null, updatedAt: _clock.now()));
         continue;
       }
       final oldBox = _checkbox.firstMatch(before[old]);
@@ -165,6 +170,40 @@ class NoteService {
       newValue: item.title,
     );
     return item;
+  });
+
+  /// 编辑事项标题、优先级和期限。事项绑在便签某一行时同步改写那一行（保留
+  /// 列表、勾选框等前缀），正文和事项始终说的是同一件事。
+  ///
+  /// 返回 false 表示同一字段已在其他窗口改过，什么都没写。
+  bool saveItemEdits(Item original, {
+    required String title,
+    required Priority priority,
+    required DateTime? dueAt,
+  }) => _db.transaction(() {
+    // 正文一行就是一件事，标题里的换行合成空格。
+    title = title.replaceAll(RegExp(r'\s*[\r\n]+\s*'), ' ').trim();
+    final latest = _items.byId(original.id);
+    final note = latest?.noteId == null ? null : _notes.byId(latest!.noteId!);
+    final index = latest?.lineIndex;
+    final linked = note != null && index != null &&
+        Note.itemsByLine(note.lines, _items.byNote(note.id))[index]?.id == latest!.id;
+    if (!_items.saveEdits(original, title: title, priority: priority, dueAt: dueAt)) {
+      return false;
+    }
+    if (!linked || title == original.title) return true;
+    final lines = note.lines;
+    final line = lines[index].trimRight();
+    final head = line.substring(0, line.length - Note.lineBody(line).length);
+    lines[index] = '$head$title';
+    final now = _clock.now();
+    _notes.update(note.copyWith(rawContent: lines.join('\n'), updatedAt: now));
+    // 标题里带了 Markdown 强调等记号时，按正文那一行的读法存，保证仍绑在这一行。
+    final saved = _items.byId(original.id)!;
+    if (Note.itemsByLine(lines, [saved])[index] == null) {
+      _items.update(saved.copyWith(title: Note.lineTitle(lines[index]), updatedAt: now));
+    }
+    return true;
   });
 
   /// 勾选 / 取消勾选。

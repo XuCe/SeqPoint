@@ -118,8 +118,7 @@ class _ItemEditorPageState extends State<ItemEditorPage> {
     }
     if (!(_form.currentState?.validate() ?? false)) return;
     try {
-      final items = AppScope.of(context).items;
-      final saved = items.saveEdits(_original,
+      final saved = AppScope.of(context).noteService.saveItemEdits(_original,
         title: _title.text.trim(), priority: _priority, dueAt: _due);
       if (!saved) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(

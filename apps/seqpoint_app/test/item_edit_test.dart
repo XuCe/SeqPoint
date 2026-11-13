@@ -29,6 +29,24 @@ Widget _app(Bootstrap boot, Widget home) => MaterialApp(
 );
 
 void main() {
+  testWidgets('便签里改事项标题后正文同步改写，不会多出一行待办', (tester) async {
+    final boot = await Bootstrap.run(dbPath: ':memory:');
+    addTearDown(boot.dispose);
+    final note = boot.noteService.capture('软著材料重写\n经营平台 app 打包', title: '当前工作任务');
+    final item = boot.noteService.lineToItem(note.id, 1);
+    await tester.pumpWidget(_app(boot, StickyWindow(noteId: note.id)));
+    await tester.tap(find.byTooltip('编辑事项'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextFormField), '经营平台 app端 打包');
+    await tester.tap(find.text('保存'));
+    await tester.pumpAndSettle();
+    expect(boot.notes.byId(note.id)!.rawContent, '软著材料重写\n经营平台 app端 打包');
+    expect(boot.items.byNote(note.id).single.id, item.id);
+    expect(find.text('经营平台 app 打包'), findsNothing);
+    expect(find.text('经营平台 app端 打包'), findsOneWidget);
+    expect(find.byTooltip('编辑事项'), findsOneWidget);
+  });
+
   for (final platform in [TargetPlatform.android, TargetPlatform.iOS]) {
     testWidgets('未确认候选直接保存不落库且确认后可重试：$platform', (tester) async {
       final previous = debugDefaultTargetPlatformOverride;
@@ -254,12 +272,12 @@ void main() {
       boot = await Bootstrap.run(dbPath: path);
       expect(boot.items.byId(item.id)!.dueAt?.toLocal(), due);
       expect(boot.items.byId(item.id)!.title, title);
-      expect(boot.notes.byId(note.id)!.rawContent, note.rawContent);
+      expect(boot.notes.byId(note.id)!.rawContent, title);
       expect(boot.db.raw.select('SELECT * FROM items WHERE id = ?', [item.id]).single, before);
       if (!viaLine) {
         await tester.pumpWidget(_app(boot, const Scaffold(body: TodayView())));
         await tester.pumpAndSettle();
-        expect(find.text(title), findsOneWidget);
+        expect(find.widgetWithText(ItemTile, title), findsOneWidget);
       }
     });
   }
@@ -354,7 +372,7 @@ void main() {
         await tester.pumpAndSettle();
         expect(boot.items.byId(item.id)!.dueAt?.toLocal(), expected);
         expect(boot.items.byId(item.id)!.title, title);
-        expect(boot.notes.byId(note.id)!.rawContent, '普通事项');
+        expect(boot.notes.byId(note.id)!.rawContent, title);
         if (title.startsWith('今晚')) {
           expect(boot.items.dueOn(DateTime.now()).map((i) => i.id), [item.id]);
           await tester.pumpWidget(_app(boot,
@@ -724,24 +742,22 @@ void main() {
     });
   }
 
-  testWidgets('移动便签正文缩短后旧事项仍可编辑与勾选', (tester) async {
-    final boot = await Bootstrap.run(dbPath: ':memory:');
-    addTearDown(boot.dispose);
-    final note = boot.noteService.capture('保留的原文\n末行事项');
-    final item = boot.noteService.lineToItem(note.id, 1);
-    boot.noteService.editContent(note.id, '保留的原文');
-    await tester.pumpWidget(_app(boot, NoteDetailPage(noteId: note.id)));
-    expect(find.text('末行事项'), findsOneWidget);
-    await tester.tap(find.byTooltip('编辑事项'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextFormField), '保留下来的事项');
-    await tester.tap(find.text('保存'));
-    await tester.pumpAndSettle();
-    expect(find.text('保留的原文'), findsOneWidget);
-    await tester.tap(find.text('保留下来的事项'));
-    await tester.pumpAndSettle();
-    expect(boot.items.byId(item.id)!.isDone, isTrue);
-  });
+  for (final mobile in [true, false]) {
+    testWidgets('${mobile ? '移动' : '桌面'}便签正文删掉事项那一行后，不再留下正文里没有的待办', (tester) async {
+      final boot = await Bootstrap.run(dbPath: ':memory:');
+      addTearDown(boot.dispose);
+      final note = boot.noteService.capture('保留的原文\n末行事项');
+      final item = boot.noteService.lineToItem(note.id, 1);
+      boot.noteService.editContent(note.id, '保留的原文');
+      await tester.pumpWidget(_app(boot,
+          mobile ? NoteDetailPage(noteId: note.id) : StickyWindow(noteId: note.id)));
+      await tester.pumpAndSettle();
+      expect(find.text('保留的原文'), findsOneWidget);
+      expect(find.text('末行事项'), findsNothing);
+      expect(find.byTooltip('编辑事项'), findsNothing);
+      expect(boot.items.byId(item.id)!.deletedAt, isNotNull);
+    });
+  }
 
   testWidgets('事项写入失败保留输入并可重试', (tester) async {
     final boot = await Bootstrap.run(dbPath: ':memory:');
@@ -807,9 +823,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(boot.items.byId(item.id)!.title, '移动修改后的标题');
       expect(find.text('移动修改后的标题'), findsWidgets);
-      if (entry == '移动便签详情') {
-        expect(find.text('移动编辑事项'), findsOneWidget);
-      }
+      expect(find.text('移动编辑事项'), findsNothing);
+      expect(boot.notes.byId(note.id)!.rawContent, '移动修改后的标题');
     });
   }
 
@@ -958,10 +973,10 @@ void main() {
     expect(saved.priority, Priority.p1);
     final now = DateTime.now();
     expect(saved.dueAt?.toLocal(), DateTime(now.year, now.month, now.day, 23, 59));
-    expect(boot.notes.byId(note.id)!.rawContent, '原事项');
+    expect(boot.notes.byId(note.id)!.rawContent, '修改后的事项');
     await tester.tap(find.text('今日'));
     await tester.pumpAndSettle();
     expect(tester.widget<ItemTile>(find.byType(ItemTile)).item.id, item.id);
-    expect(find.text('修改后的事项'), findsOneWidget);
+    expect(find.widgetWithText(ItemTile, '修改后的事项'), findsOneWidget);
   });
 }

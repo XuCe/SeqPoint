@@ -180,10 +180,10 @@ void main() {
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(boot.notes.byId(note.id)!.rawContent, '只保留一行正文');
-    expect(find.text('保留待办'), findsOneWidget);
-    await tester.tap(find.text('保留待办'));
-    await tester.pumpAndSettle();
-    expect(boot.items.byId(item.id)!.isDone, isTrue);
+    // 正文里删掉了待办那一行，待办跟着删除，不留下正文里没有的一行。
+    expect(find.text('保留待办'), findsNothing);
+    expect(boot.items.byNote(note.id), isEmpty);
+    expect(boot.items.byId(item.id)!.deletedAt, isNotNull);
   });
   testWidgets('点击便签卡片打开对应的独立窗口', (tester) async {
     final boot = await Bootstrap.run(dbPath: ':memory:');

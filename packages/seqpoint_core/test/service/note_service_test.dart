@@ -107,13 +107,65 @@ void main() {
     expect(item.status, ItemStatus.done);
   });
 
-  test('删除与替换原行后保留独立事项，出现同名行也不重绑', () {
+  test('替换掉原行后事项随之删除，之后出现同名行也不复活', () {
     final repo = ItemRepository(db);
     final note = service.capture('采购\n汇报');
     final item = service.lineToItem(note.id, 0);
     service.editContent(note.id, '另一件事\n汇报');
     service.editContent(note.id, '采购\n汇报');
-    expect(repo.byId(item.id)!.lineIndex, isNull);
+    expect(repo.byId(item.id)!.deletedAt, isNotNull);
+    expect(repo.byNote(note.id), isEmpty);
+  });
+
+  test('改事项标题同步改写正文那一行，不会多出一条事项', () {
+    final repo = ItemRepository(db);
+    final note = service.capture('当前工作\n- [ ] 经营平台 app 打包\n收尾');
+    final item = service.lineToItem(note.id, 1);
+    expect(service.saveItemEdits(item, title: '经营平台 app端 打包',
+        priority: item.priority, dueAt: item.dueAt), isTrue);
+    final saved = NoteRepository(db).byId(note.id)!;
+    expect(saved.rawContent, '当前工作\n- [ ] 经营平台 app端 打包\n收尾');
+    final items = repo.byNote(note.id);
+    expect(items.single.id, item.id);
+    expect(Note.itemsByLine(saved.lines, items)[1]?.id, item.id);
+    // 正文里删掉这一行，事项一起删掉，不留下正文里没有的待办。
+    service.editContent(note.id, '当前工作\n收尾');
+    expect(repo.byNote(note.id), isEmpty);
+    expect(repo.byId(item.id)!.deletedAt, isNotNull);
+  });
+
+  test('改事项标题时换行合成空格，事项仍绑在原行', () {
+    final note = service.capture('买菜');
+    final item = service.lineToItem(note.id, 0);
+    service.saveItemEdits(item, title: '买菜\n和水果', priority: item.priority, dueAt: null);
+    final saved = NoteRepository(db).byId(note.id)!;
+    expect(saved.rawContent, '买菜 和水果');
+    expect(Note.itemsByLine(saved.lines, ItemRepository(db).byNote(note.id))[0]?.title, '买菜 和水果');
+  });
+
+  test('事项已不在正文里时，改标题不动正文', () {
+    final note = service.capture('采购\n汇报');
+    final item = service.lineToItem(note.id, 0);
+    ItemRepository(db).update(item.copyWith(clearLineIndex: true));
+    final latest = ItemRepository(db).byId(item.id)!;
+    service.saveItemEdits(latest, title: '采购清单', priority: latest.priority, dueAt: null);
+    expect(NoteRepository(db).byId(note.id)!.rawContent, '采购\n汇报');
+    expect(ItemRepository(db).byId(item.id)!.title, '采购清单');
+  });
+
+  test('在正文里就地改几个字，事项跟着改名，期限和完成状态不丢', () {
+    final repo = ItemRepository(db);
+    final note = service.capture('上周\n- [ ] 经营平台 app 打包\n回复报价');
+    final item = service.lineToItem(note.id, 1);
+    repo.update(item.copyWith(dueAt: DateTime.utc(2026, 9, 10, 2)));
+    service.toggleItem(item.id);
+    service.editContent(note.id, '上周\n- [x] 经营平台 app端 打包\n回复报价');
+    final after = repo.byNote(note.id).single;
+    expect(after.id, item.id);
+    expect(after.lineIndex, 1);
+    expect(after.title, '经营平台 app端 打包');
+    expect(after.dueAt, DateTime.utc(2026, 9, 10, 2));
+    expect(after.status, ItemStatus.done);
   });
 
   for (final (title, due) in [
