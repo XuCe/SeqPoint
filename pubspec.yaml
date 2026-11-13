@@ -8,3 +8,8 @@ workspace:
   - apps/seqpoint_app
   - packages/seqpoint_core
   - packages/seqpoint_platform
+
+# 打了 Windows 输入法组字补丁的本地副本，说明见 third_party/live_markdown_editor/PATCHES.md。
+dependency_overrides:
+  live_markdown_editor:
+    path: third_party/live_markdown_editor

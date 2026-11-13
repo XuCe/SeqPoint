@@ -1,0 +1,24 @@
+name: live_markdown_editor
+description: A source-preserving Flutter Markdown editor with raw, live, and read modes.
+version: 0.11.0+seqpoint.1
+publish_to: none
+homepage: https://pub.dev/packages/live_markdown_editor
+
+repository: https://gitlab.com/am.elnaddar/live_markdown_editor
+issue_tracker: https://gitlab.com/am.elnaddar/live_markdown_editor/-/issues
+
+topics:
+  - markdown
+  - editor
+  - text-editor
+  - flutter
+  - widgets
+
+environment:
+  sdk: ">=3.13.0 <4.0.0"
+  flutter: ">=3.47.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  native_adaptive_toolbox: ^0.1.0
