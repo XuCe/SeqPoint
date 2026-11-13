@@ -5,7 +5,7 @@ import '../app/app_scope.dart';
 import '../shared/item_tile.dart';
 import '../shared/item_editor_page.dart';
 import '../shared/note_search.dart';
-import '../shared/section_label.dart';
+import '../shared/seq_widgets.dart';
 import '../theme/seq_tokens.dart';
 
 /// 移动端今日页（简约版定稿）。
@@ -96,6 +96,32 @@ class _TodayPageState extends State<TodayPage> {
     return open.isEmpty ? null : open.first;
   }
 
+  List<Widget> _timeline(DateTime now) {
+    final entries = [..._overdue, ..._due];
+    final rows = <Widget>[];
+    var markerPlaced = false;
+    for (var i = 0; i < entries.length; i++) {
+      final item = entries[i];
+      final overdue = item.isOverdue(now);
+      if (!markerPlaced && !overdue && item.dueAt!.isAfter(now)) {
+        rows.add(NowMarker(now: now));
+        markerPlaced = true;
+      }
+      final due = item.dueAt!.toLocal();
+      final sameDay = due.year == now.year && due.month == now.month && due.day == now.day;
+      rows.add(ItemTile(
+        item: item,
+        timeline: true,
+        first: i == 0,
+        last: i == entries.length - 1,
+        timeLabel: sameDay ? formatClock(due) : '${due.month}/${due.day}',
+        onToggle: () => _toggle(item),
+        onTap: () => _edit(item),
+      ));
+    }
+    return rows;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -108,7 +134,7 @@ class _TodayPageState extends State<TodayPage> {
       child: RefreshIndicator(
         onRefresh: () async => _reload(),
         child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 104),
           children: [
             _Greeting(now: now, remaining: remaining, onSearch: _search),
             if (suggestion != null) ...[
@@ -120,26 +146,23 @@ class _TodayPageState extends State<TodayPage> {
                 onSnooze: _snoozing || scope.restoring ? null : () => _snooze(suggestion),
               ),
             ],
-            if (_due.isNotEmpty) ...[
-              const SectionLabel('今天'),
-              for (final item in _due)
-                ItemTile(
-                  item: item,
-                  onToggle: () => _toggle(item),
-                  onTap: () => _edit(item),
-                ),
-            ],
-            if (_overdue.isNotEmpty) ...[
-              SectionLabel('逾期', badge: '${_overdue.length}', danger: true),
-              for (final item in _overdue)
-                ItemTile(
-                  item: item,
-                  onToggle: () => _toggle(item),
-                  onTap: () => _edit(item),
-                ),
+            if (_due.isNotEmpty || _overdue.isNotEmpty) ...[
+              const SizedBox(height: 22),
+              Row(children: [
+                Text('接下来', style: theme.textTheme.titleMedium?.copyWith(
+                    fontFamily: SeqFonts.serif.first, fontFamilyFallback: SeqFonts.serif,
+                    fontWeight: FontWeight.w700, fontSize: 16)),
+                const SizedBox(width: 8),
+                if (_overdue.isNotEmpty)
+                  SeqBadge('逾期 ${_overdue.length}', tone: SeqBadgeTone.danger),
+              ]),
+              const SizedBox(height: 6),
+              ..._timeline(now),
             ],
             if (_completed.isNotEmpty) ...[
-              const SectionLabel('今日已完成'),
+              const SizedBox(height: 18),
+              Text('今日已完成', style: theme.textTheme.labelSmall),
+              const SizedBox(height: 2),
               for (final item in _completed)
                 ItemTile(
                   item: item,
@@ -152,27 +175,27 @@ class _TodayPageState extends State<TodayPage> {
                 padding: const EdgeInsets.symmetric(vertical: 64),
                 child: Center(
                   child: Text(
-                    '今天还没有事项。点 ＋ 随手记一笔。',
+                    '今天还没有事项。点下面的“记一笔”写一句。',
                     style: theme.textTheme.bodySmall,
                   ),
                 ),
               ),
-            const SizedBox(height: 28),
-            Row(
-              children: [
-                const Icon(
-                  Icons.notifications_none,
-                  size: 16,
-                  color: SeqTokens.inkMuted,
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    '20:00 晚间汇总会再提醒你未完成的事',
-                    style: theme.textTheme.bodySmall,
+            const SizedBox(height: 24),
+            const SeqCard(
+              color: SeqTokens.chrome,
+              padding: EdgeInsets.fromLTRB(14, 12, 14, 12),
+              child: Row(
+                children: [
+                  Icon(Icons.notifications_none, size: 16, color: SeqTokens.inkMuted),
+                  SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      '20:00 晚间汇总会再提醒你未完成的事',
+                      style: TextStyle(fontSize: 12.5, color: SeqTokens.inkSoft),
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ],
         ),
@@ -203,13 +226,13 @@ class _Greeting extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${now.month} 月 ${now.day} 日 ${_weekday(now)}',
-                style: theme.textTheme.bodySmall,
+                '${now.month} 月 ${now.day} 日 ${weekdayName(now)}',
+                style: theme.textTheme.bodySmall?.copyWith(fontSize: 13),
               ),
-              const SizedBox(height: 2),
+              const SizedBox(height: 4),
               Text(
-                _greetingOf(now),
-                style: theme.textTheme.displaySmall?.copyWith(fontSize: 26),
+                greetingOf(now),
+                style: theme.textTheme.displaySmall?.copyWith(fontSize: 28),
               ),
               const SizedBox(height: 2),
               Text(
@@ -230,19 +253,9 @@ class _Greeting extends StatelessWidget {
       ],
     );
   }
-
-  static String _greetingOf(DateTime t) {
-    if (t.hour < 6) return '还没睡？';
-    if (t.hour < 12) return '早上好';
-    if (t.hour < 18) return '下午好';
-    return '晚上好';
-  }
-
-  static String _weekday(DateTime d) =>
-      const ['周一', '周二', '周三', '周四', '周五', '周六', '周日'][d.weekday - 1];
 }
 
-/// AI 建议卡：做成一张贴上去的便签纸，是页面的视觉重点。
+/// "下一件"：做成一张贴上去的便签纸，是页面的视觉重点。
 class _SuggestionNote extends StatelessWidget {
   const _SuggestionNote({
     required this.item,
@@ -283,10 +296,10 @@ class _SuggestionNote extends StatelessWidget {
           children: [
             const Row(
               children: [
-                Icon(Icons.auto_awesome, size: 15, color: Color(0xFF7A6620)),
+                Icon(Icons.radio_button_checked, size: 15, color: Color(0xFF7A6620)),
                 SizedBox(width: 8),
                 Text(
-                  '建议优先处理',
+                  '下一件',
                   style: TextStyle(
                     fontSize: 11.5,
                     letterSpacing: 1.2,

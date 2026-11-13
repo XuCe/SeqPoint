@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shorebird_code_push/shorebird_code_push.dart';
+
+import '../theme/seq_tokens.dart';
 
 import 'settings_scaffold.dart';
 import 'full_update_section.dart';
@@ -17,6 +20,15 @@ class _UpdateSettingsPageState extends State<UpdateSettingsPage> {
   String _message = '检查是否有可用更新';
   bool _busy = false;
   UpdateStatus? _status;
+  String? _version;
+
+  @override
+  void initState() {
+    super.initState();
+    PackageInfo.fromPlatform().then((info) {
+      if (mounted) setState(() => _version = info.version);
+    }, onError: (Object _) {});
+  }
 
   Future<void> _check() async {
     if (_busy || !_updater.isAvailable) return;
@@ -46,13 +58,33 @@ class _UpdateSettingsPageState extends State<UpdateSettingsPage> {
 
   @override
   Widget build(BuildContext context) => SettingsScaffold(
-    title: '应用更新',
+    title: '关于与更新',
     footnote:
         '热更新补丁无需重新安装；完整版本通过系统安装器更新。'
         '补丁将在下次启动时生效。桌面端请从托盘退出后重新打开，关闭窗口不会退出应用。',
     children: [
+      SettingsGroup(children: [
+        Padding(
+          padding: const EdgeInsets.all(18),
+          child: Row(children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Image.asset('assets/brand/logo.png', width: 52, height: 52,
+                  excludeFromSemantics: true),
+            ),
+            const SizedBox(width: 16),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text('序点', style: TextStyle(fontFamily: SeqFonts.serif.first,
+                  fontFamilyFallback: SeqFonts.serif, fontSize: 20, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 2),
+              Text(_version == null ? '随手记，按时序办完' : '版本 $_version · 随手记，按时序办完',
+                  style: const TextStyle(fontSize: 13, color: SeqTokens.inkMuted)),
+            ])),
+          ]),
+        ),
+      ]),
       SettingsGroup(
-        label: '热更新补丁',
+        label: '小更新（不用重新安装）',
         children: [
           ListTile(
             leading: const Icon(Icons.system_update_alt),

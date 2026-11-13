@@ -10,6 +10,6 @@ void main() {
         priority: Priority.p4, source: ItemSource.manual,
         dueAt: local.toUtc(), createdAt: local, updatedAt: local);
     await tester.pumpWidget(MaterialApp(home: Scaffold(body: ItemTile(item: item))));
-    expect(find.text('11/1 23:30'), findsOneWidget);
+    expect(find.text('11月1日 23:30'), findsOneWidget);
   });
 }

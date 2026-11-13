@@ -6,14 +6,16 @@ import '../sync/app_sync_service.dart';
 import '../sync/sync_pairing_page.dart';
 import '../sync/lan_pairing_page.dart';
 import '../sync/sync_membership_controller.dart';
+import '../theme/seq_tokens.dart';
 import 'settings_scaffold.dart';
 import 'relay_settings.dart';
 import 'syncthing_settings.dart';
 
-/// 同步设置。
+/// 设备与同步。
 ///
-/// 三条精简通道 + 一个可选引擎。口径必须诚实：
-/// 没有可达副本时绝不显示"已同步"。
+/// 顶部是设备卡（本机 + 已配对设备 + 添加设备），中间是两种同步方式：
+/// 局域网直连与云中转；身份、手动配对、手动连接和 Syncthing 收进"高级"。
+/// 口径必须诚实：没有可达副本时绝不显示"已同步"。
 class SyncSettingsPage extends StatefulWidget {
   const SyncSettingsPage({super.key, this.service});
   final AppSyncService? service;
@@ -89,53 +91,28 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
           _settings(service, restoring: scope?.restoring ?? false));
     }
     return const SettingsScaffold(
-      title: '同步',
+      title: '设备与同步',
       footnote: '当前尚未启用设备同步。配对、密钥保存及连接完成后，'
           '才会通过加密文件交换数据；没有可达副本时不会显示已同步。'
           '完成验证的历史检查点可用于恢复离线设备。',
       children: [
-        SettingsGroup(
-          label: '通道',
-          children: [
-            SwitchListTile(
-              value: false,
-              onChanged: null,
-              title: Text('本地目录'),
-              subtitle: Text('把数据放进网盘同步目录或共享盘'),
-            ),
-            SwitchListTile(
-              value: false,
-              onChanged: null,
-              title: Text('局域网直连'),
-              subtitle: Text('开发中 · 手动连接对端地址，核对配对短码'),
-            ),
-            SwitchListTile(
-              value: false,
-              onChanged: null,
-              title: Text('云中转'),
-              subtitle: Text('异地异时也能同步，数据加密暂存'),
-            ),
-          ],
+        _DeviceCard(
+          status: '仅本机',
+          detail: '此版本尚未接入设备同步服务',
+          peers: [],
         ),
-        SettingsGroup(
-          label: 'Syncthing 设备互通',
-          children: [
-            ListTile(
-              title: Text('Syncthing 引擎'),
-              subtitle: Text('尚未接入'),
-              trailing: Icon(Icons.chevron_right, size: 18),
-            ),
-          ],
+        SettingsLabel('同步方式'),
+        SettingsCard(
+          icon: Icons.wifi_rounded,
+          title: '局域网直连',
+          subtitle: '同一网络里的设备直接交换，不经过任何服务器',
+          trailing: Switch(value: false, onChanged: null),
         ),
-        SettingsGroup(
-          label: '状态',
-          children: [
-            ListTile(
-              leading: Icon(Icons.circle, size: 8),
-              title: Text('仅本机'),
-              subtitle: Text('此版本尚未接入设备同步服务'),
-            ),
-          ],
+        SettingsCard(
+          icon: Icons.cloud_outlined,
+          title: '云中转',
+          subtitle: '不在同一网络也能同步，数据加密后暂存在节点上',
+          trailing: Switch(value: false, onChanged: null),
         ),
       ],
     );
@@ -147,33 +124,54 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     final pending = service.pendingIdentity;
     final conflicted = service.hasMembershipConflict;
     final peers = service.verifiedPeers, version = service.membershipVersion;
-    return SettingsScaffold(title: '同步',
+    final addDevice = disabled || recovering || conflicted ? null : () => Navigator.of(context).push<void>(
+        MaterialPageRoute(builder: (_) => LanPairingPage(service: service)));
+    Widget peerRow(MemberKeys peer) => _PeerRow(
+          deviceId: peer.deviceId,
+          onRevoke: disabled || recovering || conflicted || version == null
+              ? null : () => _confirmRevoke(service, peer, version),
+        );
+    return SettingsScaffold(title: '设备与同步',
       footnote: '配对后通过加密连接交换数据。本机上传不代表对端已收到。'
         '旧日志在检查点验证完成后回收，离线设备可从检查点继续同步。', children: [
       if (_error ?? service.error case final message?)
         ListTile(leading: const Icon(Icons.error_outline), title: Text(message)),
       if (!recovering && !conflicted) ...[
-      SettingsGroup(label: '局域网同步', children: [
-        for (final peer in service.lanPeers) ListTile(
-          leading: const Icon(Icons.devices), title: Text('设备 ${peer.deviceId.substring(0, 8)}'),
-          subtitle: Text('${peer.host}:${peer.port} · ${service.lanEnabled ? '自动同步已开启' : '已暂停'}')),
-        SwitchListTile(value: service.lanEnabled,
-          onChanged: disabled || !service.prepared ? null : (value) =>
-            _run(service, () => service.setLanEnabled(value)),
-          title: const Text('局域网自动双向同步'),
-          subtitle: const Text('同一网络中的已配对设备自动交换修改')),
-        ListTile(title: const Text('连接手机或电脑'),
-          subtitle: const Text('电脑显示二维码，手机扫一扫；也可输入对方 IP:端口'),
-          leading: const Icon(Icons.qr_code_scanner), trailing: const Icon(Icons.chevron_right),
-          onTap: disabled || recovering || conflicted ? null : () => Navigator.of(context).push<void>(
-            MaterialPageRoute(builder: (_) => LanPairingPage(service: service)))),
-      ]),
-      SyncthingSettings(key: ValueKey('syncthing-${service.identity?.deviceId}-${service.relayVaultId}'),
-          service: service, disabled: disabled || recovering || conflicted),
+        _DeviceCard(
+          status: peers.isEmpty ? '仅本机' : '已和 ${peers.length} 台设备配对',
+          detail: peers.isEmpty ? '数据只在这台设备上；配对后会自动互相同步'
+              : '修改在已配对设备之间加密交换',
+          thisDevice: service.identity?.name,
+          peers: [for (final peer in peers) peerRow(peer)],
+          onAdd: addDevice,
+        ),
+        const SettingsLabel('同步方式'),
+        SettingsCard(
+          icon: Icons.wifi_rounded,
+          title: '局域网直连',
+          subtitle: '同一网络里的设备直接交换，不经过任何服务器',
+          highlighted: service.lanEnabled,
+          children: [
+            SwitchListTile(value: service.lanEnabled,
+              onChanged: disabled || !service.prepared ? null : (value) =>
+                _run(service, () => service.setLanEnabled(value)),
+              title: const Text('局域网自动双向同步'),
+              subtitle: const Text('同一网络中的已配对设备自动交换修改')),
+            for (final peer in service.lanPeers) ListTile(
+              leading: const Icon(Icons.devices, size: 20), title: Text('设备 ${peer.deviceId.substring(0, 8)}'),
+              subtitle: Text('${peer.host}:${peer.port} · ${service.lanEnabled ? '自动同步已开启' : '已暂停'}')),
+          ],
+        ),
+        RelaySettings(key: ValueKey(service.relayVaultId), service: service, disabled: disabled),
       ],
       ExpansionTile(key: ValueKey('advanced-$recovering-$conflicted'),
         initiallyExpanded: recovering || conflicted,
-        title: Text(recovering || conflicted ? '恢复同步' : '高级同步设置'), children: [
+        tilePadding: const EdgeInsets.symmetric(horizontal: 26),
+        title: Text(recovering || conflicted ? '恢复同步' : '高级同步设置',
+          style: const TextStyle(fontSize: 14.5, fontWeight: FontWeight.w600)),
+        subtitle: recovering || conflicted ? null
+          : const Text('本机身份、手动配对、手动连接、Syncthing', style: TextStyle(fontSize: 12.5)),
+        children: [
       SettingsGroup(label: '本机', children: [
         ListTile(title: Text(service.status)),
         if (restoring) const ListTile(title: Text('正在恢复备份，同步操作暂不可用')),
@@ -237,11 +235,8 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
               MaterialPageRoute(builder: (_) => SyncPairingPage(service: service)))),
         ],
       ]),
-      if (peers.isNotEmpty) SettingsGroup(label: '已验证设备', children: [
-        for (final peer in peers) ListTile(title: SelectableText(peer.deviceId),
-          trailing: OutlinedButton(onPressed: disabled || recovering || conflicted || version == null
-            ? null : () => _confirmRevoke(service, peer, version), child: const Text('撤销'))),
-      ]),
+      if (peers.isNotEmpty && (recovering || conflicted))
+        SettingsGroup(label: '已验证设备', children: [for (final peer in peers) peerRow(peer)]),
       if (service.prepared && !recovering && !conflicted) _connection(service, disabled),
       if (service.lastRound case final round?) SettingsGroup(label: '最近一轮', children: [
         ListTile(title: Text('本机已发布 ${round.pushed} 条 · 已合入 ${round.pulled} 条'),
@@ -250,11 +245,10 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
         for (final peer in round.waitingPeers)
           ListTile(title: const Text('等待接收的设备'), subtitle: SelectableText(peer)),
       ]),
-      RelaySettings(key: ValueKey(service.relayVaultId), service: service, disabled: disabled),
-      ]),
-      const SettingsGroup(label: '其他通道', children: [
-        SwitchListTile(value: false, onChanged: null, title: Text('本地目录'),
-          subtitle: Text('尚未接入')),
+      if (!recovering && !conflicted)
+        SyncthingSettings(key: ValueKey('syncthing-${service.identity?.deviceId}-${service.relayVaultId}'),
+          service: service, disabled: disabled),
+      const SizedBox(height: 8),
       ]),
     ]);
   }
@@ -263,7 +257,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     final peers = service.verifiedPeers;
     final peer = peers.any((p) => p.deviceId == _peerId) ? _peerId : peers.firstOrNull?.deviceId;
     final canConnect = !disabled && service.canSync && peer != null;
-    return SettingsGroup(label: '局域网直连', children: [
+    return SettingsGroup(label: '手动连接', children: [
       if (peers.isEmpty) const ListTile(title: Text('先完成配对，再连接已验证设备')),
       if (service.listeningPort case final port?) ListTile(
         title: Text('正在监听端口 $port'), subtitle: const Text('在另一台设备输入本机 IP 和此端口')),
@@ -301,4 +295,145 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
         ]))),
     ]);
   }
+}
+
+/// 设备卡：本机与已配对设备排成一列，像时间线上的点；底部是添加设备。
+class _DeviceCard extends StatelessWidget {
+  const _DeviceCard({
+    required this.status,
+    required this.detail,
+    required this.peers,
+    this.thisDevice,
+    this.onAdd,
+  });
+
+  final String status;
+  final String detail;
+  final String? thisDevice;
+  final List<Widget> peers;
+  final VoidCallback? onAdd;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+        child: Material(
+          color: SeqTokens.raised,
+          clipBehavior: Clip.antiAlias,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16),
+              side: const BorderSide(color: Color(0xFFECE6D8))),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(18, 16, 14, 14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Row(children: [
+                Container(width: 9, height: 9, decoration: BoxDecoration(shape: BoxShape.circle,
+                    color: peers.isEmpty ? SeqTokens.inkFaint : SeqTokens.syncDot)),
+                const SizedBox(width: 10),
+                Expanded(child: Text(status, style: TextStyle(fontFamily: SeqFonts.serif.first,
+                    fontFamilyFallback: SeqFonts.serif, fontSize: 18, fontWeight: FontWeight.w700))),
+              ]),
+              const SizedBox(height: 4),
+              Padding(
+                padding: const EdgeInsets.only(left: 19),
+                child: Text(detail, style: const TextStyle(fontSize: 13, color: SeqTokens.inkMuted)),
+              ),
+              const SizedBox(height: 14),
+              _DeviceLine(icon: Icons.laptop_mac_outlined, title: thisDevice ?? '这台设备',
+                  caption: '本机', first: true, last: peers.isEmpty),
+              for (var i = 0; i < peers.length; i++)
+                _DeviceLine.wrap(peers[i], last: i == peers.length - 1),
+              const SizedBox(height: 12),
+              Row(children: [
+                FilledButton.icon(
+                  onPressed: onAdd,
+                  style: FilledButton.styleFrom(backgroundColor: SeqTokens.ink,
+                      foregroundColor: SeqTokens.paper, minimumSize: const Size(0, 40)),
+                  icon: const Icon(Icons.qr_code_2_rounded, size: 18),
+                  label: const Text('添加设备'),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(child: Text('电脑显示二维码，手机扫一扫；也可输入对方 IP:端口',
+                    style: TextStyle(fontSize: 12.5, color: SeqTokens.inkMuted))),
+              ]),
+            ]),
+          ),
+        ),
+      );
+}
+
+/// 设备列表里的一行：左侧圆点与竖线串起各台设备。
+class _DeviceLine extends StatelessWidget {
+  const _DeviceLine({required this.icon, required this.title, this.caption,
+    this.first = false, this.last = false, this.child});
+
+  factory _DeviceLine.wrap(Widget child, {required bool last}) =>
+      _DeviceLine(icon: Icons.devices_other_outlined, title: '', last: last, child: child);
+
+  final IconData icon;
+  final String title;
+  final String? caption;
+  final bool first, last;
+  final Widget? child;
+
+  @override
+  Widget build(BuildContext context) => IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          SizedBox(
+            width: 20,
+            child: Stack(alignment: Alignment.topCenter, children: [
+              if (!(first && last)) Positioned(
+                top: first ? 18 : 0, bottom: last ? null : 0, height: last ? 18 : null,
+                child: Container(width: 2, color: SeqTokens.line),
+              ),
+              Padding(padding: const EdgeInsets.only(top: 12), child: Container(
+                width: 12, height: 12,
+                decoration: BoxDecoration(shape: BoxShape.circle,
+                    color: first ? SeqTokens.accent : SeqTokens.raised,
+                    border: first ? null : Border.all(color: SeqTokens.syncDot, width: 2)),
+              )),
+            ]),
+          ),
+          const SizedBox(width: 10),
+          Expanded(child: child ?? Padding(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            child: Row(children: [
+              Icon(icon, size: 18, color: SeqTokens.inkSoft),
+              const SizedBox(width: 8),
+              Expanded(child: Text(title, style: const TextStyle(fontSize: 14.5))),
+              if (caption != null) Text(caption!, style: const TextStyle(fontSize: 12.5,
+                  color: SeqTokens.inkMuted)),
+            ]),
+          )),
+        ]),
+      );
+}
+
+/// 已配对设备：短编号 + 完整设备号（可复制核对）+ 撤销。
+class _PeerRow extends StatelessWidget {
+  const _PeerRow({required this.deviceId, required this.onRevoke});
+
+  final String deviceId;
+  final VoidCallback? onRevoke;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(children: [
+          const Icon(Icons.devices_other_outlined, size: 18, color: SeqTokens.inkSoft),
+          const SizedBox(width: 8),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text('设备 ${deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId}',
+                style: const TextStyle(fontSize: 14.5)),
+            SelectableText(deviceId, maxLines: 1,
+                style: const TextStyle(fontSize: 11.5, color: SeqTokens.inkFaint)),
+          ])),
+          const SizedBox(width: 8),
+          OutlinedButton(
+            onPressed: onRevoke,
+            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 34),
+                foregroundColor: SeqTokens.dangerInk,
+                side: const BorderSide(color: SeqTokens.line)),
+            child: const Text('撤销'),
+          ),
+        ]),
+      );
 }

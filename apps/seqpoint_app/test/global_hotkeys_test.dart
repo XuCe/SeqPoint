@@ -31,7 +31,7 @@ void main() {
         messenger.setMockMethodCallHandler(SystemChannels.platform, null);
       });
       await tester.pumpWidget(hotkeyApp(boot, hotkeys));
-      await tester.tap(find.text('全部事项')); await tester.pumpAndSettle();
+      await tester.tap(find.text('事项')); await tester.pumpAndSettle();
       await tester.tap(find.text('事项草稿原文')); await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextFormField), '未保存事项草稿');
       hotkeys.events.add(action); await tester.pumpAndSettle();
@@ -66,6 +66,8 @@ void main() {
       HotkeyAction.toggleQuickNote, HotkeyAction.newNote, HotkeyAction.openSearch,
     });
     expect(find.text('部分全局快捷键未能启用，请在设置中查看。'), findsOneWidget);
+    tester.state<ScaffoldMessengerState>(find.byType(ScaffoldMessenger)).clearSnackBars();
+    await tester.pumpAndSettle();
     await tester.tap(find.text('设置')); await tester.pumpAndSettle();
     await tester.tap(find.text('快捷键')); await tester.pumpAndSettle();
     final shown = tester.widget<HotkeySettingsPage>(find.byType(HotkeySettingsPage));
@@ -91,9 +93,10 @@ void main() {
     await tester.pumpWidget(hotkeyApp(boot, hotkeys));
     hotkeys.events.add(HotkeyAction.openSearch);
     await tester.pumpAndSettle();
-    final field = tester.widget<TextField>(find.byType(TextField));
+    final palette = find.byKey(const ValueKey('palette-input'));
+    final field = tester.widget<TextField>(palette);
     expect(field.focusNode!.hasFocus, isTrue);
-    await tester.enterText(find.byType(TextField), '结果');
+    await tester.enterText(palette, '结果');
     hotkeys.events.add(HotkeyAction.openSearch);
     await tester.pumpAndSettle();
     expect(find.text('结果'), findsOneWidget);
@@ -104,7 +107,7 @@ void main() {
     await tester.pump(); await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(boot.items.byId(item.id)!.title, '全局搜索编辑后');
-    expect(find.byType(TextField), findsNothing);
+    expect(palette, findsNothing);
     await tester.pumpWidget(const SizedBox.shrink());
   });
   testWidgets('剪贴板空内容不建便签，保留原文换行且重复触发不覆盖编辑', (tester) async {

@@ -63,7 +63,8 @@ Future<void> _mount(WidgetTester tester, _Sync sync, {bool restoring = false}) a
 }
 
 Future<void> _showDevices(WidgetTester tester) async {
-  if (find.text('恢复同步').evaluate().isEmpty) {
+  // 正常状态下已配对设备在页面顶部的设备卡里；恢复或冲突时才在折叠区里。
+  if (find.text('撤销').evaluate().isEmpty && find.text('恢复同步').evaluate().isEmpty) {
     await tester.scrollUntilVisible(find.text('高级同步设置'), 200,
       scrollable: find.byType(Scrollable).first);
     await tester.pump(const Duration(milliseconds: 300));
@@ -73,8 +74,10 @@ Future<void> _showDevices(WidgetTester tester) async {
       await tester.pump(const Duration(milliseconds: 300));
     }
   }
-  await tester.scrollUntilVisible(find.text('撤销'), 200,
-    scrollable: find.byType(Scrollable).first);
+  if (find.text('撤销').evaluate().isEmpty) {
+    await tester.scrollUntilVisible(find.text('撤销'), 200,
+      scrollable: find.byType(Scrollable).first);
+  }
   await Scrollable.ensureVisible(tester.element(find.text('撤销')), alignment: 0.5);
   await tester.pump(const Duration(milliseconds: 300));
 }

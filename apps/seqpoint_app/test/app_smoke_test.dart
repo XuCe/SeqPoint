@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:seqpoint_app/desktop/panel/today_view.dart';
+import 'package:seqpoint_app/shared/item_tile.dart';
 import 'package:seqpoint_app/app/app_scope.dart';
 import 'package:seqpoint_app/app/bootstrap.dart';
 import 'package:seqpoint_app/desktop/panel/main_panel.dart';
@@ -30,15 +32,22 @@ void main() {
     // 左导航
     expect(find.text('序点'), findsOneWidget);
     expect(find.text('今日'), findsOneWidget);
-    expect(find.text('便签墙'), findsOneWidget);
+    expect(find.text('便签'), findsOneWidget);
+    expect(find.text('事项'), findsOneWidget);
+    expect(find.text('已关闭'), findsOneWidget);
 
     // 同步状态诚实展示
     expect(find.text('仅本机'), findsOneWidget);
 
     // 今日视图：演示数据里两件未完成（一件今天 18:00 到期）、一件已完成
     expect(find.textContaining('今天还有'), findsOneWidget);
-    expect(find.text('回复张三报价'), findsOneWidget);
-    expect(find.text('周五前发周报'), findsOneWidget);
+    expect(find.descendant(of: find.byType(ItemTile), matching: find.text('回复张三报价')),
+        findsOneWidget);
+    expect(find.descendant(of: find.byType(ItemTile), matching: find.text('周五前发周报')),
+        findsOneWidget);
+    await tester.scrollUntilVisible(find.textContaining('晚间汇总'), 200,
+        scrollable: find.descendant(of: find.byType(TodayView),
+            matching: find.byType(Scrollable)).first);
     expect(find.textContaining('晚间汇总'), findsOneWidget);
   });
 
@@ -66,14 +75,15 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.text('早上就该做的事'), findsOneWidget);
+    expect(find.descendant(of: find.byType(ItemTile), matching: find.text('早上就该做的事')),
+        findsOneWidget);
   });
 
   testWidgets('切换到便签墙不报错', (tester) async {
     await tester.pumpWidget(await _mount(const MainPanel()));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('便签墙'));
+    await tester.tap(find.text('便签'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
   });

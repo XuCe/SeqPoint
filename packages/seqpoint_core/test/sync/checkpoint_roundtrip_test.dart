@@ -6,7 +6,6 @@ import 'package:seqpoint_core/src/sync/sync_checkpoint_build.dart';
 import 'package:seqpoint_core/src/sync/sync_checkpoint_verify.dart';
 import 'package:seqpoint_core/src/sync/sync_checkpoint_stage.dart';
 import 'package:seqpoint_core/src/sync/sync_checkpoint_commit.dart';
-import 'package:seqpoint_core/src/sync/transport/lan_protocol.dart';
 import 'package:test/test.dart';
 import 'lan_sync_runtime_fixture.dart';
 

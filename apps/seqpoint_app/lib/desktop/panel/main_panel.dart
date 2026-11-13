@@ -1,27 +1,31 @@
 import 'dart:async';
 import 'dart:ui' show AppExitResponse;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:seqpoint_core/seqpoint_core.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../../app/app_scope.dart';
+import '../../mobile/note_detail_page.dart';
 import '../../updates/full_update_installer.dart';
 import '../../settings/settings_view.dart';
-import '../../shared/note_search.dart';
+import '../../shared/item_editor_page.dart';
+import '../../shared/open_note.dart';
+import '../../theme/seq_tokens.dart';
 import '../sticky/note_editor.dart';
-import 'archive_view.dart';
+import 'closed_view.dart';
+import 'command_palette.dart';
 import 'items_view.dart';
 import 'note_wall_view.dart';
 import 'side_nav.dart';
-import 'tags_view.dart';
 import 'today_view.dart';
-import 'trash_view.dart';
 
-/// 主面板：左导航 + 内容区两栏。
+/// 主面板：左导航 + 内容区；打开便签时右侧滑出便签面板。
 ///
-/// 刻意不用邮件式三栏——那是重管理界面，与"轻"矛盾。
+/// 平时只有两栏，便签面板按需出现、随手关掉，不做常驻的邮件式三栏。
 class MainPanel extends StatefulWidget {
   const MainPanel({super.key, this.hotkeys, this.tray});
   final HotkeyService? hotkeys;
@@ -34,6 +38,8 @@ class MainPanel extends StatefulWidget {
 class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindingObserver {
   PanelSection _section = PanelSection.today;
   int _revision = 0;
+  String? _tagId;
+  String? _panelNoteId;
   StreamSubscription<HotkeyAction>? _hotkeySubscription;
   bool _opening = false;
   bool _backgroundReady = false;
@@ -289,11 +295,45 @@ class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindi
       return;
     }
     _opening = true;
+    PaletteChoice? choice;
     try {
-      await openNoteSearch(context);
-      if (mounted && !_restoring) setState(() => _revision++);
+      choice = await showCommandPalette(context, commands: [
+        const PaletteCommand('new', '记一笔', Icons.edit_outlined, hint: '新建便签'),
+        const PaletteCommand('today', '去今日', Icons.wb_sunny_outlined),
+        const PaletteCommand('notes', '去便签', Icons.sticky_note_2_outlined),
+        const PaletteCommand('items', '去事项', Icons.checklist_rounded),
+        const PaletteCommand('closed', '去已关闭', Icons.inventory_2_outlined),
+        const PaletteCommand('settings', '打开设置', Icons.settings_outlined),
+      ]);
     } finally {
       _opening = false;
+    }
+    if (choice == null || !mounted || _restoring) return;
+    switch (choice) {
+      case PaletteCommand(id: 'new'):
+        await _create();
+      case PaletteCommand(:final id):
+        _select(switch (id) {
+          'notes' => PanelSection.notes,
+          'items' => PanelSection.items,
+          'closed' => PanelSection.closed,
+          'settings' => PanelSection.settings,
+          _ => PanelSection.today,
+        });
+      case PaletteHit(:final hit):
+        try {
+          if (hit.isNote) {
+            await openNote(context, hit.objectId);
+          } else {
+            await ItemEditorPage.open(context, hit.objectId);
+          }
+        } catch (_) {
+          if (mounted) {
+            ScaffoldMessenger.of(context)
+                .showSnackBar(const SnackBar(content: Text('打开搜索结果失败，请重试。')));
+          }
+        }
+        if (mounted && !_restoring) setState(() => _revision++);
     }
   }
 
@@ -306,12 +346,26 @@ class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindi
       );
       if (id == null || !mounted || _restoring) return;
       setState(() {
-        _section = PanelSection.noteWall;
+        _section = PanelSection.notes;
         _revision++;
       });
     } finally {
       _opening = false;
     }
+  }
+
+  void _select(PanelSection section) => setState(() {
+        _section = section;
+        if (section != PanelSection.items) _tagId = null;
+      });
+
+  /// 没有独立便签窗的桌面（如 Linux）在主面板右侧打开便签。
+  Future<void> _openInPanel(String noteId) async {
+    setState(() => _panelNoteId = noteId);
+  }
+
+  void _panelChanged() {
+    if (mounted) setState(() => _revision++);
   }
 
   @override
@@ -322,37 +376,101 @@ class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindi
           semanticsLabel: '正在恢复本机快照')));
     }
     final todayCount = scope.items.dueThroughTodayCount(DateTime.now());
+    final tags = [
+      for (final tag in [...scope.tags.all(kind: TagKind.project), ...scope.tags.all(kind: TagKind.custom),
+          ...scope.tags.all(kind: TagKind.type)])
+        (tag, scope.tags.usageCount(tag.id)),
+    ].where((entry) => entry.$2 > 0 || entry.$1.kind == TagKind.project).take(12).toList();
+    final peers = scope.sync?.verifiedPeers.length ?? 0;
+    final panelNoteId = _panelNoteId;
+    final panelNote = panelNoteId == null ? null : scope.notes.byId(panelNoteId);
+    final showPanel = panelNote != null && !panelNote.isDeleted && !panelNote.isClosed;
 
-    return Scaffold(
-      body: Row(
+    final panel = showPanel
+        ? NoteDetailPage(
+            key: ValueKey(panelNoteId),
+            noteId: panelNoteId!,
+            onDismiss: () => setState(() => _panelNoteId = null),
+            onChanged: _panelChanged,
+          )
+        : null;
+    final body = LayoutBuilder(builder: (context, constraints) {
+      // 窗口较窄时便签面板浮在内容上，避免把内容区挤到放不下卡片。
+      final panelWidth = constraints.maxWidth < 980 ? 360.0 : 420.0;
+      final docked = constraints.maxWidth - 233 - panelWidth >= 560;
+      return Row(
         children: [
           SideNav(
             current: _section,
             todayCount: todayCount,
+            noteCount: scope.notes.active().length,
             onSearch: _search,
-            onSelect: (s) => setState(() => _section = s),
+            onCreate: _create,
+            createHint: widget.hotkeys == null ? null
+                : defaultTargetPlatform == TargetPlatform.macOS ? '⌥⇧N' : 'Alt+Shift+N',
+            tags: tags,
+            selectedTagId: _tagId,
+            onTag: (tag) => setState(() {
+              _section = PanelSection.items;
+              _tagId = _tagId == tag.id ? null : tag.id;
+            }),
+            syncLabel: peers == 0 ? '仅本机' : '已和 $peers 台设备配对',
+            synced: peers > 0,
+            onSelect: _select,
           ),
-          const VerticalDivider(width: 1),
-          Expanded(child: _content()),
+          const VerticalDivider(width: 1, color: SeqTokens.line),
+          Expanded(
+            child: panel == null || docked
+                ? _content()
+                : Stack(children: [
+                    Positioned.fill(child: _content()),
+                    Positioned(
+                      top: 0,
+                      bottom: 0,
+                      right: 0,
+                      width: panelWidth,
+                      child: Material(elevation: 12, child: panel),
+                    ),
+                  ]),
+          ),
+          if (panel != null && docked) ...[
+            const VerticalDivider(width: 1, color: SeqTokens.line),
+            SizedBox(width: panelWidth, child: panel),
+          ],
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: _create,
-        icon: const Icon(Icons.add),
-        label: const Text('新建便签'),
+      );
+    });
+
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyK, meta: true): _search,
+        const SingleActivator(LogicalKeyboardKey.keyK, control: true): _search,
+        const SingleActivator(LogicalKeyboardKey.keyN, meta: true): _create,
+        const SingleActivator(LogicalKeyboardKey.keyN, control: true): _create,
+      },
+      child: Focus(
+        autofocus: true,
+        child: Scaffold(
+          body: scope.windows == null
+              ? NoteOpenerScope(open: _openInPanel, child: body)
+              : body,
+        ),
       ),
     );
   }
 
   Widget _content() => switch (_section) {
-    PanelSection.today => TodayView(key: ValueKey(_revision), onChanged: () => setState(() {})),
-    PanelSection.noteWall => NoteWallView(key: ValueKey(_revision)),
-    PanelSection.items => ItemsView(onChanged: () => setState(() {})),
-    PanelSection.tags => const TagsView(),
-    PanelSection.archive => const ArchiveView(),
-    PanelSection.trash => TrashView(onChanged: () => setState(() {})),
+    PanelSection.today => TodayView(revision: _revision, onChanged: () => setState(() {})),
+    PanelSection.notes => NoteWallView(revision: _revision, onChanged: () => setState(() {})),
+    PanelSection.items => ItemsView(
+        key: ValueKey('items-$_tagId'),
+        tagId: _tagId,
+        revision: _revision,
+        onClearTag: () => setState(() => _tagId = null),
+        onChanged: () => setState(() {})),
+    PanelSection.closed => ClosedView(revision: _revision, onChanged: () => setState(() {})),
     PanelSection.settings => SettingsView(bindings: _bindings),
   };
 }
 
-enum PanelSection { today, noteWall, items, tags, archive, trash, settings }
+enum PanelSection { today, notes, items, closed, settings }

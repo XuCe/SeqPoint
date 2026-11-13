@@ -1,8 +1,30 @@
+import 'dart:ffi';
+import 'dart:io';
+
+import 'package:sqlite3/open.dart';
 import 'package:sqlite3/sqlite3.dart';
 
 import '../search/search_service.dart';
 import 'migrations.dart';
 import 'time_migration.dart';
+
+/// 进程内唯一的 SQLite 入口：首次访问前安装平台加载回退。
+///
+/// `sqlite3` 包在 Linux 上只尝试 `libsqlite3.so`，该名称仅由开发包
+/// （libsqlite3-dev）提供；普通桌面系统只装运行时的 `libsqlite3.so.0`，
+/// 不回退会导致客户端启动即失败。
+final Sqlite3 seqSqlite3 = () {
+  if (Platform.isLinux) open.overrideFor(OperatingSystem.linux, _openLinuxSqlite);
+  return sqlite3;
+}();
+
+DynamicLibrary _openLinuxSqlite() {
+  try {
+    return DynamicLibrary.open('libsqlite3.so');
+  } on ArgumentError {
+    return DynamicLibrary.open('libsqlite3.so.0');
+  }
+}
 
 /// SQLite 封装：打开、按版本迁移、提供原始句柄。
 ///
@@ -26,9 +48,9 @@ class SeqDatabase {
     }
   }
 
-  static SeqDatabase inMemory() => SeqDatabase._(sqlite3.openInMemory());
+  static SeqDatabase inMemory() => SeqDatabase._(seqSqlite3.openInMemory());
 
-  static SeqDatabase open(String path) => SeqDatabase._(sqlite3.open(path));
+  static SeqDatabase open(String path) => SeqDatabase._(seqSqlite3.open(path));
 
   int get schemaVersion =>
       raw.select('PRAGMA user_version').first.columnAt(0) as int;

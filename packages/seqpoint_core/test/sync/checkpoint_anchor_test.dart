@@ -1,5 +1,4 @@
 import 'package:seqpoint_core/seqpoint_core.dart';
-import 'package:seqpoint_core/src/sync/transport/lan_protocol.dart';
 import 'package:test/test.dart';
 import 'publication_history_test.dart' show addPublication;
 

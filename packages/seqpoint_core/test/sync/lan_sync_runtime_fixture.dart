@@ -5,7 +5,6 @@ import 'dart:io';
 import 'package:seqpoint_core/seqpoint_core.dart'
     hide MembershipEvent, MembershipEventType;
 import 'package:seqpoint_core/src/identity/membership_state.dart';
-import 'package:seqpoint_core/src/sync/transport/lan_protocol.dart';
 
 class RuntimeNode {
   RuntimeNode(this.directory, this.keys, this.membership, this.epochKey);

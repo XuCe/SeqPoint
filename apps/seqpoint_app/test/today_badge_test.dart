@@ -20,6 +20,8 @@ void main() {
     b.items.update(item.copyWith(dueAt: DateTime.now()));
     b.noteService.trash(note.id);
     await t.pumpWidget(_app(b));
+    await t.tap(find.text('已关闭'));
+    await t.pumpAndSettle();
     await t.tap(find.text('回收站'));
     await t.pumpAndSettle();
     expect(t.widget<SideNav>(find.byType(SideNav)).todayCount, 0);
@@ -29,7 +31,7 @@ void main() {
     expect(t.widget<SideNav>(find.byType(SideNav)).todayCount, 1);
     expect(t.takeException(), isNull);
   });
-  for (final section in ['今日', '全部事项']) {
+  for (final section in ['今日', '事项']) {
     for (final action in ['完成', '修改期限']) {
       testWidgets('$section中$action后角标立即刷新', (t) async {
         final b = await Bootstrap.run(dbPath: ':memory:');
@@ -45,7 +47,7 @@ void main() {
           await t.tap(find.descendant(of: find.byType(ItemTile),
             matching: find.byType(GestureDetector)).last);
         } else {
-          await t.tap(find.text('角标交互事项'));
+          await t.tap(find.descendant(of: find.byType(ItemTile), matching: find.text('角标交互事项')));
           await t.pumpAndSettle();
           await t.ensureVisible(find.text('清除截止时间'));
           await t.tap(find.text('清除截止时间'));
@@ -72,10 +74,10 @@ void main() {
     b.items.update(item.copyWith(dueAt: DateTime(now.year, now.month, now.day)));
     await t.pumpWidget(_app(b));
     expect(t.widget<SideNav>(find.byType(SideNav)).todayCount, 1);
-    expect(find.descendant(of: find.byType(SideNav), matching: find.text('1')),
+    expect(find.descendant(of: find.byKey(const ValueKey('today-badge')), matching: find.text('1')),
       findsOneWidget);
     expect(t.widget<ItemTile>(find.byType(ItemTile)).item.id, item.id);
-    expect(find.text('早上好，今天还有 1 件事'), findsOneWidget);
+    expect(find.textContaining('今天还有 1 件事'), findsOneWidget);
   });
 
   testWidgets('同名不同事项各计一次，跨日逾期计入，明日无期限和已完成不计入', (t) async {
@@ -96,13 +98,13 @@ void main() {
     b.noteService.toggleItem(items.last.id);
     await t.pumpWidget(_app(b));
     expect(t.widget<SideNav>(find.byType(SideNav)).todayCount, 3);
-    expect(find.descendant(of: find.byType(SideNav), matching: find.text('3')),
+    expect(find.descendant(of: find.byKey(const ValueKey('today-badge')), matching: find.text('3')),
       findsOneWidget);
     expect(t.widgetList<ItemTile>(find.byType(ItemTile))
       .where((tile) => tile.item.isOpen).map((tile) => tile.item.id),
       unorderedEquals(items.take(3).map((item) => item.id)));
-    expect(find.text('同名事项'), findsNWidgets(2));
-    expect(find.text('早上好，今天还有 3 件事'), findsOneWidget);
+    expect(find.descendant(of: find.byType(ItemTile), matching: find.text('同名事项')), findsNWidgets(2));
+    expect(find.textContaining('今天还有 3 件事'), findsOneWidget);
   });
 
   testWidgets('修改截止时间、完成或重新打开后刷新角标，事项始终只计一次', (t) async {
@@ -130,7 +132,7 @@ void main() {
       (t.state(find.byType(MainPanel)) as WindowListener).onWindowFocus();
       await t.pumpAndSettle();
       expect(t.widget<SideNav>(find.byType(SideNav)).todayCount, count);
-      expect(find.descendant(of: find.byType(SideNav), matching: find.text('$count')),
+      expect(find.descendant(of: find.byKey(const ValueKey('today-badge')), matching: find.text('$count')),
         count == 0 ? findsNothing : findsOneWidget);
     }
   });
@@ -157,7 +159,7 @@ void main() {
       (t.state(find.byType(MainPanel)) as WindowListener).onWindowFocus();
       await t.pumpAndSettle();
       expect(t.widget<SideNav>(find.byType(SideNav)).todayCount, count);
-      expect(find.descendant(of: find.byType(SideNav), matching: find.text('$count')),
+      expect(find.descendant(of: find.byKey(const ValueKey('today-badge')), matching: find.text('$count')),
         count == 0 ? findsNothing : findsOneWidget);
     }
   });

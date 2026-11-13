@@ -32,7 +32,7 @@ void main() {
     await t.tap(find.text('删除'));
     await t.pumpAndSettle();
     expect(b.notes.byId(note.id)!.deletedAt, isNotNull);
-    await t.tap(find.text('全部事项'));
+    await t.tap(find.text('事项'));
     await t.pumpAndSettle();
     expect(find.byType(ItemTile), findsNothing);
     await t.tap(find.text('今日'));
@@ -41,7 +41,7 @@ void main() {
     b.noteService.restore(note.id);
     await t.tap(find.text('便签'));
     await t.pumpAndSettle();
-    await t.tap(find.text('全部事项'));
+    await t.tap(find.text('事项'));
     await t.pumpAndSettle();
     expect(t.widget<ItemTile>(find.byType(ItemTile)).item.id, todo.id);
     await t.tap(find.text('今日'));
@@ -63,9 +63,11 @@ void main() {
     (t.state(find.byType(MainPanel)) as WindowListener).onWindowFocus();
     await t.pumpAndSettle();
     expect(find.byType(ItemTile), findsNothing);
-    await t.tap(find.text('全部事项'));
+    await t.tap(find.text('事项'));
     await t.pumpAndSettle();
     expect(find.byType(ItemTile), findsNothing);
+    await t.tap(find.text('已关闭'));
+    await t.pumpAndSettle();
     await t.tap(find.text('回收站'));
     await t.pumpAndSettle();
     await t.tap(find.text('恢复'));
@@ -73,7 +75,7 @@ void main() {
     await t.tap(find.text('今日'));
     await t.pumpAndSettle();
     expect(find.byType(ItemTile), findsNWidgets(2));
-    await t.tap(find.text('全部事项'));
+    await t.tap(find.text('事项'));
     await t.pumpAndSettle();
     expect(find.byType(ItemTile), findsOneWidget);
     expect(t.widget<ItemTile>(find.byType(ItemTile)).item.id, todo.id);

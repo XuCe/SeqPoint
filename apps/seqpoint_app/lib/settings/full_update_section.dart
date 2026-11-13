@@ -79,7 +79,7 @@ class _FullUpdateSectionState extends State<FullUpdateSection> {
 
   @override
   Widget build(BuildContext context) => SettingsGroup(
-    label: '完整版本更新',
+    label: '完整版本（需要重新安装）',
     children: [
       ListTile(
         leading: const Icon(Icons.download_for_offline_outlined),

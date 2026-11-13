@@ -6,8 +6,6 @@ import 'package:seqpoint_app/app/app_scope.dart';
 import 'package:seqpoint_app/app/bootstrap.dart';
 import 'package:seqpoint_app/desktop/panel/main_panel.dart';
 import 'package:seqpoint_app/mobile/mobile_shell.dart';
-import 'package:seqpoint_app/mobile/capture_sheet.dart';
-import 'package:seqpoint_app/mobile/quick_capture_page.dart';
 import 'package:seqpoint_app/platform/desktop_windows.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
 import 'desktop_residency_support.dart';
@@ -83,28 +81,6 @@ void main() {
     await tester.pump();
     expect(tester.takeException(), isNull);
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-  });
-
-  testWidgets('恢复屏障生效后旧CaptureSheet结果不再打开编辑页', (tester) async {
-    final boot = await Bootstrap.run(dbPath: ':memory:');
-    addTearDown(boot.dispose);
-    final navigator = GlobalKey<NavigatorState>();
-    await tester.pumpWidget(_mobileApp(boot, false, navigator: navigator));
-    await tester.pumpAndSettle();
-    var finished = false;
-    final capture = CaptureSheet.show(navigator.currentContext!).then((value) {
-      finished = true; return value;
-    });
-    await tester.pumpAndSettle();
-    await tester.pumpWidget(_mobileApp(boot, true, navigator: navigator));
-    navigator.currentState!.pop('text');
-    await tester.pump(const Duration(milliseconds: 400));
-    await tester.pump();
-    expect(find.byType(QuickCapturePage), findsNothing);
-    expect(finished, isTrue);
-    expect(await capture, isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });

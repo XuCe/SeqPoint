@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:seqpoint_core/seqpoint_core.dart';
-import 'package:seqpoint_core/src/sync/transport/lan_protocol.dart';
 import 'package:test/test.dart';
 import 'relay_node_fixture.dart';
 

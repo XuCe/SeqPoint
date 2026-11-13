@@ -47,8 +47,12 @@ void main() {
     expect(coordinator, isNotNull);
     final note = boot!.noteService.capture('明天下午三点开会');
     final item = boot!.noteService.lineToItem(note.id, 0);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
-    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    // 按真实顺序切换生命周期：输入框的生命周期监听会校验状态转换是否合法。
+    for (final state in [AppLifecycleState.inactive, AppLifecycleState.hidden,
+        AppLifecycleState.paused, AppLifecycleState.hidden,
+        AppLifecycleState.inactive, AppLifecycleState.resumed]) {
+      tester.binding.handleAppLifecycleStateChanged(state);
+    }
     await tester.runAsync(() async {});
     await tester.pump();
     expect(notifications.scheduled.single.title, contains('开会'));

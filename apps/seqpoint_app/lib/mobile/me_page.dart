@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 
 import '../app/app_scope.dart';
-import '../desktop/panel/archive_view.dart';
-import '../desktop/panel/trash_view.dart';
+import '../desktop/panel/closed_view.dart';
 import '../settings/ai_settings_page.dart';
 import '../settings/backup_settings_page.dart';
 import '../settings/reminder_settings_page.dart';
 import '../settings/sync_settings_page.dart';
 import '../settings/update_settings_page.dart';
+import '../shared/seq_widgets.dart';
 import '../theme/seq_tokens.dart';
 import 'tags_page.dart';
 
-/// 我的：标签、提醒策略、AI 设置、同步、备份、回收站。
+/// 我的：设备同步状态、已关闭与标签、各项设置。
 class MePage extends StatefulWidget {
   const MePage({super.key});
 
@@ -25,17 +25,70 @@ class _MePageState extends State<MePage> {
     final scope = AppScope.of(context);
     final archivedCount = scope.notes.closed().length;
     final trashedCount = scope.notes.trashed().length;
+    final peers = scope.sync?.verifiedPeers.length ?? 0;
 
     return SafeArea(
       child: ListView(
-        padding: const EdgeInsets.only(bottom: 24),
+        padding: const EdgeInsets.only(bottom: 32),
         children: [
           const _Header(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            child: SeqCard(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 14),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Row(children: [
+                  Container(width: 9, height: 9, decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: peers > 0 ? SeqTokens.syncDot : SeqTokens.inkFaint)),
+                  const SizedBox(width: 10),
+                  Expanded(child: Text(peers > 0 ? '已和 $peers 台设备配对' : '仅本机',
+                      style: const TextStyle(fontSize: 15.5, fontWeight: FontWeight.w600))),
+                ]),
+                const SizedBox(height: 6),
+                Text(peers > 0
+                    ? '在同一个局域网里会自动交换修改，云中转开启时离线也能收到。'
+                    : '数据只在这台设备上。扫码配对另一台设备，就能互相同步。',
+                    style: const TextStyle(fontSize: 13, height: 1.55, color: SeqTokens.inkMuted)),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.tonal(
+                    onPressed: () => _push(context, const SyncSettingsPage()),
+                    style: FilledButton.styleFrom(
+                      backgroundColor: SeqTokens.chip,
+                      foregroundColor: SeqTokens.ink,
+                    ),
+                    child: Text(peers > 0 ? '管理设备' : '添加设备'),
+                  ),
+                ),
+              ]),
+            ),
+          ),
+          const _GroupLabel('整理过的'),
           _Group(children: [
             _Row(
-              icon: Icons.auto_awesome,
+              icon: Icons.inventory_2_outlined,
+              label: '已关闭',
+              detail: '揭走 $archivedCount · 回收站 $trashedCount',
+              onTap: () => _push(context, Scaffold(
+                appBar: AppBar(title: const Text('已关闭')),
+                body: const ClosedView(showHeader: false,
+                    padding: EdgeInsets.fromLTRB(16, 8, 16, 24)),
+              )),
+            ),
+            _Row(
+              icon: Icons.tag,
+              label: '标签',
+              detail: '${scope.tags.all().length} 个',
+              onTap: () => _push(context, const TagsPage()),
+            ),
+          ]),
+          const _GroupLabel('设置'),
+          _Group(children: [
+            _Row(
+              icon: Icons.auto_awesome_outlined,
               label: 'AI 整理',
-              detail: '未配置',
               onTap: () => _push(context, const AiSettingsPage()),
             ),
             _Row(
@@ -44,51 +97,28 @@ class _MePageState extends State<MePage> {
               detail: '勿扰 22:00–08:00',
               onTap: () => _push(context, const ReminderSettingsPage()),
             ),
-          ]),
-          _Group(children: [
             _Row(
-              icon: Icons.sync,
-              label: '同步',
-              detail: '仅本机',
+              icon: Icons.devices_outlined,
+              label: '设备与同步',
+              detail: peers > 0 ? '$peers 台设备' : '仅本机',
               onTap: () => _push(context, const SyncSettingsPage()),
             ),
             _Row(
-              icon: Icons.backup_outlined,
-              label: '备份与导出',
+              icon: Icons.shield_outlined,
+              label: '备份与恢复',
               onTap: () => _push(context, const BackupSettingsPage()),
             ),
             _Row(
-              icon: Icons.system_update_alt,
-              label: '应用更新',
+              icon: Icons.info_outline,
+              label: '关于与更新',
               onTap: () => _push(context, const UpdateSettingsPage()),
             ),
           ]),
-          _Group(children: [
-            _Row(
-              icon: Icons.sell_outlined,
-              label: '标签',
-              detail: '${scope.tags.all().length} 个',
-              onTap: () => _push(context, const TagsPage()),
-            ),
-            _Row(
-              icon: Icons.inventory_2_outlined,
-              label: '已归档',
-              detail: '$archivedCount 张',
-              onTap: () => _push(context, Scaffold(
-                appBar: AppBar(title: const Text('已归档')),
-                body: const ArchiveView(),
-              )),
-            ),
-            _Row(
-              icon: Icons.delete_outline,
-              label: '回收站',
-              detail: trashedCount == 0 ? null : '$trashedCount 张',
-              onTap: () => _push(context, Scaffold(
-                appBar: AppBar(title: const Text('回收站')),
-                body: const TrashView(),
-              )),
-            ),
-          ]),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(22, 22, 22, 0),
+            child: Text('没有账号，数据只在你的设备上。',
+                style: TextStyle(fontSize: 12, color: SeqTokens.inkMuted)),
+          ),
         ],
       ),
     );
@@ -106,20 +136,23 @@ class _Header extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
-      child: Row(
-        children: [
-          Text('我的',
-              style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                    fontSize: 26,
-                  )),
-          const Spacer(),
-          const Text('无需注册',
-              style: TextStyle(fontSize: 12, color: SeqTokens.inkMuted)),
-        ],
-      ),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 4),
+      child: Text('我的',
+          style: Theme.of(context).textTheme.displaySmall?.copyWith(fontSize: 28)),
     );
   }
+}
+
+class _GroupLabel extends StatelessWidget {
+  const _GroupLabel(this.text);
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.fromLTRB(22, 22, 22, 0),
+        child: Text(text, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600,
+            letterSpacing: 1, color: SeqTokens.inkMuted)),
+      );
 }
 
 class _Group extends StatelessWidget {
@@ -130,13 +163,13 @@ class _Group extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
       child: Material(
-        color: Theme.of(context).colorScheme.surface,
+        color: SeqTokens.raised,
         clipBehavior: Clip.antiAlias,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(14),
-          side: const BorderSide(color: SeqTokens.line),
+          borderRadius: BorderRadius.circular(16),
+          side: const BorderSide(color: Color(0xFFECE6D8)),
         ),
         child: Column(children: children),
       ),
@@ -160,11 +193,16 @@ class _Row extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: Icon(icon, size: 20, color: SeqTokens.inkMuted),
+      leading: Container(
+        width: 32,
+        height: 32,
+        decoration: BoxDecoration(color: SeqTokens.chip, borderRadius: BorderRadius.circular(9)),
+        child: Icon(icon, size: 18, color: SeqTokens.inkSoft),
+      ),
       title: Text(label, style: const TextStyle(fontSize: 15)),
       subtitle: detail == null ? null : Text(detail!,
-          style: const TextStyle(fontSize: 13, color: SeqTokens.inkMuted)),
-      trailing: const Icon(Icons.chevron_right, size: 18, color: SeqTokens.inkMuted),
+          style: const TextStyle(fontSize: 12.5, color: SeqTokens.inkMuted)),
+      trailing: const Icon(Icons.chevron_right, size: 18, color: SeqTokens.inkFaint),
       onTap: onTap,
     );
   }

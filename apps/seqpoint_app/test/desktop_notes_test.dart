@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -9,9 +10,11 @@ import 'package:seqpoint_app/app/app_scope.dart';
 import 'package:seqpoint_app/app/bootstrap.dart';
 import 'package:seqpoint_app/desktop/panel/main_panel.dart';
 import 'package:seqpoint_app/desktop/sticky/sticky_window.dart';
+import 'package:seqpoint_app/mobile/note_detail_page.dart';
 import 'package:seqpoint_app/platform/desktop_windows.dart';
 import 'package:seqpoint_app/shared/note_card.dart';
 import 'package:seqpoint_app/shared/item_tile.dart';
+import 'package:seqpoint_core/seqpoint_core.dart' show NoteStatus;
 import 'package:seqpoint_platform/seqpoint_platform.dart' show WindowFrame;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:window_manager/window_manager.dart';
@@ -32,7 +35,7 @@ void main() {
     final boot = await Bootstrap.run(dbPath: ':memory:');
     addTearDown(boot.dispose);
     await tester.pumpWidget(_app(boot, const MainPanel()));
-    await tester.tap(find.text('新建便签'));
+    await tester.tap(find.text('记一笔'));
     await tester.pumpAndSettle();
     final save = find.widgetWithText(TextButton, '保存');
     final controller = noteEditor(tester).controller;
@@ -51,7 +54,7 @@ void main() {
     expect(boot.notes.active().single.rawContent, '语音确认的便签');
     expect(find.byType(NoteCard), findsOneWidget);
   });
-  for (final section in ['今日', '全部事项']) {
+  for (final section in ['今日', '事项']) {
     testWidgets('切回主窗口后刷新$section中的待办状态', (tester) async {
       final boot = await Bootstrap.run(dbPath: ':memory:');
       addTearDown(boot.dispose);
@@ -71,7 +74,7 @@ void main() {
       boot.noteService.toggleItem(item.id);
       (tester.state(find.byType(MainPanel)) as WindowListener).onWindowFocus();
       await tester.pumpAndSettle();
-      if (section == '全部事项') {
+      if (section == '事项') {
         expect(find.byType(ItemTile), findsNothing);
       } else {
         expect(
@@ -89,7 +92,7 @@ void main() {
       final boot = await Bootstrap.run(dbPath: ':memory:');
       addTearDown(boot.dispose);
       await tester.pumpWidget(_app(boot, const MainPanel()));
-      await tester.tap(find.text('新建便签'));
+      await tester.tap(find.text('记一笔'));
       await tester.pumpAndSettle();
       await typeNote(tester, '快捷键保存');
       await tester.pump();
@@ -105,7 +108,7 @@ void main() {
     final boot = await Bootstrap.run(dbPath: ':memory:');
     addTearDown(boot.dispose);
     await tester.pumpWidget(_app(boot, const MainPanel()));
-    await tester.tap(find.text('新建便签'));
+    await tester.tap(find.text('记一笔'));
     await tester.pumpAndSettle();
     expect(
       tester
@@ -128,7 +131,7 @@ void main() {
         "BEGIN SELECT RAISE(ABORT, 'test'); END;",
       );
       await tester.pumpWidget(_app(boot, const MainPanel()));
-      await tester.tap(find.text('新建便签'));
+      await tester.tap(find.text('记一笔'));
       await tester.pumpAndSettle();
       await typeNote(tester, '失败后仍保留');
       await tester.pump();
@@ -215,7 +218,7 @@ void main() {
     await tester.pumpWidget(
       _app(boot, const MainPanel(), windows: DesktopWindowService()),
     );
-    await tester.tap(find.text('便签墙'));
+    await tester.tap(find.text('便签'));
     await tester.pumpAndSettle();
     await tester.tap(find.byType(NoteCard));
     await tester.pumpAndSettle();
@@ -232,11 +235,48 @@ void main() {
     await tester.pumpAndSettle();
     expect(calls.where((c) => c.method == 'createWindow'), hasLength(2));
   });
+  testWidgets('没有独立便签窗时，便签墙卡片在面板内打开并可归档', (tester) async {
+    final boot = await Bootstrap.run(dbPath: ':memory:');
+    addTearDown(boot.dispose);
+    final note = boot.noteService.capture('面板内打开\n第二行');
+    await tester.pumpWidget(_app(boot, const MainPanel()));
+    await tester.tap(find.text('便签'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(NoteCard));
+    await tester.pumpAndSettle();
+    expect(find.byType(NoteDetailPage), findsOneWidget);
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('揭走（办完收起）'));
+    await tester.pumpAndSettle();
+    expect(find.byType(NoteDetailPage), findsNothing);
+    expect(boot.notes.byId(note.id)!.status, NoteStatus.closed);
+    expect(find.byType(NoteCard), findsNothing, reason: '返回后便签墙应刷新');
+  });
+
+  for (final (platform, windows, hint) in [
+    (TargetPlatform.linux, false, '今天还没有带时间的事。在上面写一句试试。'),
+    (TargetPlatform.windows, true, '今天还没有带时间的事。按 Alt+Shift+Space 随时记一笔。'),
+    (TargetPlatform.macOS, true, '今天还没有带时间的事。按 ⌥Space 随时记一笔。'),
+  ]) {
+    testWidgets('今日空状态按平台提示可用的记录方式 $platform', (tester) async {
+      debugDefaultTargetPlatformOverride = platform;
+      addTearDown(() => debugDefaultTargetPlatformOverride = null);
+      final boot = await Bootstrap.run(dbPath: ':memory:');
+      addTearDown(boot.dispose);
+      await tester.pumpWidget(_app(boot, const MainPanel(),
+          windows: windows ? DesktopWindowService() : null));
+      await tester.pump();
+      expect(find.text(hint), findsOneWidget);
+      debugDefaultTargetPlatformOverride = null;
+    });
+  }
+
   testWidgets('桌面新建便签后保存并显示在便签墙', (tester) async {
     final boot = await Bootstrap.run(dbPath: ':memory:');
     addTearDown(boot.dispose);
     await tester.pumpWidget(_app(boot, const MainPanel()));
-    await tester.tap(find.text('新建便签'));
+    await tester.tap(find.text('记一笔'));
     await tester.pumpAndSettle();
     await typeNote(tester, '桌面记录\n记得回复客户');
     await tester.enterText(find.widgetWithText(TextField, '标题（选填）'), '工作跟进');
@@ -256,7 +296,7 @@ void main() {
     boot.noteService.capture('第二张');
     final windows = _OpeningWindows();
     await tester.pumpWidget(_app(boot, const MainPanel(), windows: windows));
-    await tester.tap(find.text('便签墙'));
+    await tester.tap(find.text('便签'));
     await tester.pumpAndSettle();
     for (final text in ['第一张', '第一张', '第二张']) {
       await tester.tap(find.text(text));
@@ -279,7 +319,7 @@ void main() {
     final windows = DesktopWindowService();
     await tester.pumpWidget(_app(boot, const MainPanel(), windows: windows));
     for (final title in ['手动调过窗口', '保持默认窗口']) {
-      await tester.tap(find.text('新建便签'));
+      await tester.tap(find.text('记一笔'));
       await tester.pumpAndSettle();
       await typeNote(tester, title);
       if (title == '手动调过窗口') {

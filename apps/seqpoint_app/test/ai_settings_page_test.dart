@@ -137,7 +137,8 @@ void main() {
     await tester.ensureVisible(find.byKey(const ValueKey('ai-model')));
     await tester.enterText(find.byKey(const ValueKey('ai-model')), 'm');
     FocusManager.instance.primaryFocus?.unfocus(); await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('保存配置'));
+    await tester.scrollUntilVisible(find.text('保存配置'), 120,
+        scrollable: find.byType(Scrollable).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('保存配置')); await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));

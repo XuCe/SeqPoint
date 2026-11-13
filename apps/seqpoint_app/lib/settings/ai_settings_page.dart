@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:seqpoint_core/seqpoint_core.dart';
 
+import '../theme/seq_tokens.dart';
 import 'settings_scaffold.dart';
 import 'ai_settings_store.dart';
 
@@ -92,6 +93,7 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
 
   @override
   Widget build(BuildContext context) {
+    final editable = !_loading && !_loadError && !_saving;
     return SettingsScaffold(
       title: 'AI 整理',
       footnote: '密钥只保存在这台设备的系统安全存储里，'
@@ -101,57 +103,108 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
         if (_loading || _saving) const LinearProgressIndicator(),
         if (_loadError) ListTile(title: const Text('无法读取AI设置'),
             trailing: TextButton(onPressed: _load, child: const Text('重试'))),
-        SettingsGroup(
-          label: '隐私档位',
-          children: [
-            RadioGroup<AiMode>(
-              groupValue: _mode,
-              onChanged: (v) {
-                if (_loading || _loadError || _saving) return;
-                setState(() => _mode = v ?? _mode);
-              },
-              child: Column(
-                children: [
-                  for (final mode in AiMode.values)
-                    RadioListTile<AiMode>(
-                      enabled: !_loading && !_loadError && !_saving,
-                      value: mode,
-                      title: Text(_titleOf(mode)),
-                      subtitle: Text(_subtitleOf(mode)),
-                    ),
-                ],
-              ),
-            ),
-          ],
+        const SettingsLabel('整理方式'),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 0),
+          child: RadioGroup<AiMode>(
+            groupValue: _mode,
+            onChanged: (v) {
+              if (!editable) return;
+              setState(() => _mode = v ?? _mode);
+            },
+            child: LayoutBuilder(builder: (context, constraints) {
+              final wide = constraints.maxWidth >= 600;
+              final tiles = [
+                for (final mode in AiMode.values)
+                  _ModeTile(
+                    mode: mode,
+                    selected: _mode == mode,
+                    enabled: editable,
+                    title: _titleOf(mode),
+                    subtitle: _subtitleOf(mode),
+                    icon: _iconOf(mode),
+                    compact: !wide,
+                    onTap: () => setState(() => _mode = mode),
+                  ),
+              ];
+              return wide
+                  ? IntrinsicHeight(child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                      for (var i = 0; i < tiles.length; i++) ...[
+                        if (i > 0) const SizedBox(width: 10),
+                        Expanded(child: tiles[i]),
+                      ],
+                    ]))
+                  : Column(children: [
+                      for (var i = 0; i < tiles.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 8),
+                        tiles[i],
+                      ],
+                    ]);
+            }),
+          ),
         ),
-        if (_mode == AiMode.cloud)
-          SettingsGroup(
-            label: 'OpenAI兼容接口',
+        if (_mode == AiMode.cloud) ...[
+          SettingsCard(
+            icon: Icons.hub_outlined,
+            title: 'OpenAI 兼容接口',
+            subtitle: '填写任何兼容 OpenAI 格式的服务地址、模型名和密钥',
             children: [
-              Padding(padding: const EdgeInsets.all(16), child: Column(children: [
+              Padding(padding: const EdgeInsets.fromLTRB(16, 4, 16, 8), child: Column(children: [
                 TextField(key: const ValueKey('ai-base-url'), controller: _base,
-                    enabled: !_saving && !_loading && !_loadError, keyboardType: TextInputType.url,
+                    enabled: editable, keyboardType: TextInputType.url,
                     decoration: const InputDecoration(labelText: '服务地址（HTTPS Base URL）')),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 TextField(key: const ValueKey('ai-model'), controller: _model,
-                    enabled: !_saving && !_loading && !_loadError,
+                    enabled: editable,
                     decoration: const InputDecoration(labelText: '模型名')),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
                 TextField(key: const ValueKey('ai-key'), controller: _key, obscureText: true,
-                    enabled: !_saving && !_loading && !_loadError, autocorrect: false, enableSuggestions: false,
+                    enabled: editable, autocorrect: false, enableSuggestions: false,
                     decoration: const InputDecoration(labelText: 'API Key', helperText: '留空保留该地址已保存的密钥')),
               ])),
-              ListTile(title: Text(_hasKey ? '已保存服务的密钥：已配置' : '已保存服务的密钥：未配置'),
+              ListTile(
+                  leading: Icon(_hasKey ? Icons.key_rounded : Icons.key_off_outlined, size: 20,
+                      color: _hasKey ? SeqTokens.goodInk : SeqTokens.inkMuted),
+                  title: Text(_hasKey ? '已保存服务的密钥：已配置' : '已保存服务的密钥：未配置'),
                   subtitle: Text(_store?.config.baseUrl ?? '尚未保存服务地址'),
-                  trailing: TextButton(onPressed: _hasKey && !_saving && !_loading && !_loadError ? _clearKey : null,
+                  trailing: TextButton(onPressed: _hasKey && editable ? _clearKey : null,
                       child: const Text('清除已保存密钥'))),
             ],
           ),
-        Padding(padding: const EdgeInsets.all(16), child: FilledButton(
-            onPressed: _loading || _loadError || _saving ? null : _save, child: const Text('保存配置'))),
+          const SettingsCard(
+            icon: Icons.visibility_outlined,
+            title: '会发送什么',
+            children: [
+              Padding(
+                padding: EdgeInsets.fromLTRB(62, 0, 16, 14),
+                child: Text(
+                  '· 只在你点“整理”并再次确认后发送，不会自动上传\n'
+                  '· 只发送那一张便签已保存的原文\n'
+                  '· 不发送附件、录音或其他便签\n'
+                  '· 整理结果先给你看，采纳前不改动任何内容',
+                  style: TextStyle(fontSize: 13, height: 1.8, color: SeqTokens.inkSoft),
+                ),
+              ),
+            ],
+          ),
+        ],
+        Padding(padding: const EdgeInsets.fromLTRB(16, 18, 16, 0), child: Align(
+          alignment: Alignment.centerLeft,
+          child: FilledButton(
+              onPressed: editable ? _save : null,
+              style: FilledButton.styleFrom(backgroundColor: SeqTokens.ink,
+                  foregroundColor: SeqTokens.paper, padding: const EdgeInsets.symmetric(horizontal: 22)),
+              child: const Text('保存配置')),
+        )),
       ],
     );
   }
+
+  static IconData _iconOf(AiMode m) => switch (m) {
+        AiMode.off => Icons.do_not_disturb_on_outlined,
+        AiMode.localRulesOnly => Icons.rule_rounded,
+        AiMode.cloud => Icons.auto_awesome_outlined,
+      };
 
   static String _titleOf(AiMode m) => switch (m) {
         AiMode.off => '关闭',
@@ -164,4 +217,67 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
         AiMode.localRulesOnly => '时间、标签、优先级在本机解析，内容不出设备',
         AiMode.cloud => '手动确认后将当前已保存便签的原文发送给指定服务',
       };
+}
+
+/// 一种整理方式：图标、名称、说明，右上角单选。整张卡片可点。
+class _ModeTile extends StatelessWidget {
+  const _ModeTile({
+    required this.mode,
+    required this.selected,
+    required this.enabled,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+    this.compact = false,
+  });
+
+  final AiMode mode;
+  final bool selected, enabled, compact;
+  final String title, subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: selected ? SeqTokens.accentSoft : SeqTokens.raised,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(14),
+          side: BorderSide(color: selected ? SeqTokens.accent : const Color(0xFFECE6D8),
+              width: selected ? 1.5 : 1),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          child: compact ? Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
+            child: Row(children: [
+              Icon(icon, size: 20, color: selected ? SeqTokens.accentInk : SeqTokens.inkSoft),
+              const SizedBox(width: 12),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                Text(subtitle, style: const TextStyle(fontSize: 12.5, height: 1.45,
+                    color: SeqTokens.inkMuted)),
+              ])),
+              Radio<AiMode>(value: mode, enabled: enabled),
+            ]),
+          ) : Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 6, 14),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Icon(icon, size: 20, color: selected ? SeqTokens.accentInk : SeqTokens.inkSoft),
+                const Spacer(),
+                Radio<AiMode>(value: mode, enabled: enabled),
+              ]),
+              Text(title, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+              const SizedBox(height: 4),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Text(subtitle, style: const TextStyle(fontSize: 12.5, height: 1.5,
+                    color: SeqTokens.inkMuted)),
+              ),
+            ]),
+          ),
+        ),
+      );
 }

@@ -39,7 +39,9 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.pageBack(); await tester.pumpAndSettle();
       await tester.pageBack(); await tester.pumpAndSettle();
-      await tester.scrollUntilVisible(find.text('回收站'), 160);
+      await tester.scrollUntilVisible(find.text('已关闭'), 160);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('已关闭'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('回收站'));
       await tester.pumpAndSettle();

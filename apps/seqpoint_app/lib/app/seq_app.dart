@@ -408,6 +408,8 @@ class _SeqAppState extends State<SeqApp> with WidgetsBindingObserver {
       debugShowCheckedModeBanner: false,
       theme: seqLightTheme(),
       darkTheme: seqDarkTheme(),
+      // 新界面的深色稿还没出，先固定浅色，避免浅色卡片落在深色底上。
+      themeMode: ThemeMode.light,
       routes: {'/': (_) => _home()},
       onGenerateInitialRoutes: (name) => [
         MaterialPageRoute<void>(settings: const RouteSettings(name: '/'), builder: (_) => _home()),

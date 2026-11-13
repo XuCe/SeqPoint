@@ -39,7 +39,7 @@ void main() {
       hotkeys.events.add(action); await tester.pumpAndSettle();
       expect(visible, isTrue); expect(focused, 1);
       expect(hotkeys.bound, hasLength(4)); expect(hotkeys.releases, 0);
-      expect(action == HotkeyAction.openSearch ? find.byType(TextField) : noteField, action == HotkeyAction.toggleQuickNote
+      expect(action == HotkeyAction.openSearch ? find.byKey(const ValueKey('palette-input')) : noteField, action == HotkeyAction.toggleQuickNote
         ? findsNothing : findsOneWidget);
       if (action == HotkeyAction.clipboardToNote) expect(noteEditor(tester).controller.text, '后台剪贴板内容');
       await tester.pumpWidget(const SizedBox.shrink()); await tester.pumpAndSettle();

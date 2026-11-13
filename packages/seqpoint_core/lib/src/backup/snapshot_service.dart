@@ -40,7 +40,7 @@ class SnapshotService {
     if (!snapshot.existsSync()) {
       throw FileSystemException('快照不存在', snapshot.path);
     }
-    final probe = sqlite3.open(snapshot.path, mode: OpenMode.readOnly);
+    final probe = seqSqlite3.open(snapshot.path, mode: OpenMode.readOnly);
     final expected = SeqDatabase.inMemory();
     try {
       probe.execute('PRAGMA trusted_schema = OFF');

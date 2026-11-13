@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:seqpoint_core/seqpoint_core.dart';
 
 import '../theme/seq_tokens.dart';
+import 'seq_widgets.dart';
 
-/// 事项行。列表与今日视图共用。
+/// 事项行。列表、今日时间线共用。
 ///
-/// 显示：勾选圈、标题、重要星标、标签、时间。移动端最小高度 44px。
+/// 圆点即勾选：点一下完成，再点一下撤销。时间线模式下左侧是时刻、
+/// 中间是串起一天的竖线，与品牌"序点"同一个意象。
 class ItemTile extends StatelessWidget {
   const ItemTile({
     super.key,
@@ -14,6 +16,11 @@ class ItemTile extends StatelessWidget {
     this.sourceNoteTitle,
     this.onToggle,
     this.onTap,
+    this.timeline = false,
+    this.timeLabel,
+    this.first = false,
+    this.last = false,
+    this.now,
   });
 
   final Item item;
@@ -22,110 +29,142 @@ class ItemTile extends StatelessWidget {
   final VoidCallback? onToggle;
   final VoidCallback? onTap;
 
+  /// 时间线模式：左侧时刻 + 竖线串联。
+  final bool timeline;
+  final String? timeLabel;
+  final bool first;
+  final bool last;
+  final DateTime? now;
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final done = item.isDone;
+    final current = now ?? DateTime.now();
+    final overdue = item.isOverdue(current);
 
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        constraints: const BoxConstraints(minHeight: SeqSpace.minTapTarget),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        decoration: const BoxDecoration(
-          border: Border(top: BorderSide(color: SeqTokens.lineSoft)),
+    final title = Row(children: [
+      Flexible(
+        child: Text(
+          item.title,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontSize: 14.5,
+            color: done ? SeqTokens.inkMuted : null,
+            decoration: done ? TextDecoration.lineThrough : null,
+            decorationColor: SeqTokens.inkMuted,
+          ),
+          overflow: TextOverflow.ellipsis,
         ),
-        child: Row(
-          children: [
-            GestureDetector(
-              onTap: onToggle,
-              child: _Circle(done: done),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Flexible(
-                        child: Text(
-                          item.title,
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            color: done ? SeqTokens.inkMuted : null,
-                            decoration:
-                                done ? TextDecoration.lineThrough : null,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                      if (item.isImportant) ...[
-                        const SizedBox(width: 6),
-                        const Icon(Icons.star,
-                            size: 13, color: SeqTokens.accent),
-                      ],
-                    ],
-                  ),
-                  if (tagNames.isNotEmpty || sourceNoteTitle != null)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 3),
-                      child: Wrap(
-                        spacing: 6,
-                        children: [
-                          for (final name in tagNames)
-                            Text('#$name',
-                                style: theme.textTheme.bodySmall
-                                    ?.copyWith(fontSize: 11.5)),
-                          if (sourceNoteTitle != null)
-                            Text(sourceNoteTitle!,
-                                style: theme.textTheme.bodySmall
-                                    ?.copyWith(fontSize: 11.5)),
-                        ],
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            if (item.dueAt != null)
-              Text(_formatDue(item.dueAt!), style: theme.textTheme.bodySmall),
-          ],
+      ),
+      if (item.isImportant) ...[
+        const SizedBox(width: 6),
+        const Icon(Icons.star_rounded, size: 15, color: SeqTokens.accent),
+      ],
+    ]);
+
+    final meta = <String>[
+      if (sourceNoteTitle != null) sourceNoteTitle!,
+      for (final name in tagNames) '#$name',
+    ];
+    final body = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        title,
+        if (meta.isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Text(meta.join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(fontSize: 12)),
+          ),
+      ],
+    );
+
+    final dot = GestureDetector(
+      onTap: onToggle,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.all(2),
+        child: Semantics(
+          button: true,
+          checked: done,
+          label: done ? '标记为未完成' : '标记为完成',
+          child: SeqDot(done: done, overdue: overdue),
         ),
       ),
     );
-  }
 
-  static String _formatDue(DateTime d) {
-    d = d.toLocal();
-    final now = DateTime.now();
-    final sameDay = d.year == now.year && d.month == now.month && d.day == now.day;
-    final hh = d.hour.toString().padLeft(2, '0');
-    final mm = d.minute.toString().padLeft(2, '0');
-    if (sameDay) return '$hh:$mm';
-    return '${d.month}/${d.day} $hh:$mm';
-  }
-}
+    if (!timeline) {
+      return InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(10),
+        hoverColor: SeqTokens.chip.withValues(alpha: 0.6),
+        child: Container(
+          constraints: const BoxConstraints(minHeight: SeqSpace.minTapTarget + 4),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Row(children: [
+            dot,
+            const SizedBox(width: 10),
+            Expanded(child: body),
+            if (item.dueAt != null) ...[
+              const SizedBox(width: 12),
+              Text(
+                formatDue(item.dueAt!, current),
+                style: theme.textTheme.bodySmall?.copyWith(
+                  fontSize: 12.5,
+                  color: overdue ? SeqTokens.dangerInk : SeqTokens.inkMuted,
+                  fontWeight: overdue ? FontWeight.w600 : null,
+                ),
+              ),
+            ],
+          ]),
+        ),
+      );
+    }
 
-class _Circle extends StatelessWidget {
-  const _Circle({required this.done});
-
-  final bool done;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 20,
-      height: 20,
-      decoration: BoxDecoration(
-        shape: BoxShape.circle,
-        color: done ? SeqTokens.accentInk : null,
-        border: done
-            ? null
-            : Border.all(color: const Color(0xFFB9B2A3), width: 1.5),
+    final label = timeLabel ??
+        (item.dueAt == null ? '' : formatClock(item.dueAt!));
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      hoverColor: SeqTokens.chip.withValues(alpha: 0.6),
+      child: IntrinsicHeight(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          SizedBox(
+            width: 56,
+            child: Padding(
+              padding: const EdgeInsets.only(top: 13),
+              child: Text(label, textAlign: TextAlign.right,
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                    color: overdue ? SeqTokens.dangerInk : SeqTokens.inkMuted,
+                    fontWeight: overdue ? FontWeight.w600 : FontWeight.w500,
+                  )),
+            ),
+          ),
+          const SizedBox(width: 8),
+          SizedBox(
+            width: 24,
+            child: Stack(alignment: Alignment.topCenter, children: [
+              if (!(first && last)) Positioned(
+                top: first ? 22 : 0,
+                bottom: last ? null : 0,
+                height: last ? 22 : null,
+                child: Container(width: 2, color: SeqTokens.line),
+              ),
+              Padding(padding: const EdgeInsets.only(top: 10), child: dot),
+            ]),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 11),
+              child: body,
+            ),
+          ),
+        ]),
       ),
-      child: done
-          ? const Icon(Icons.check, size: 13, color: SeqTokens.paper)
-          : null,
     );
   }
 }

@@ -74,6 +74,12 @@ set_target_properties(${BINARY_NAME}
 # them to the application.
 include(flutter/generated_plugins.cmake)
 
+# 第三方插件源码不受本仓库控制，新版 clang 的弃用/未初始化警告不应阻断构建；
+# 应用自身的 runner 仍保持 -Werror。
+foreach(plugin ${FLUTTER_PLUGIN_LIST})
+  target_compile_options(${plugin}_plugin PRIVATE -Wno-error)
+endforeach(plugin)
+
 
 # === Installation ===
 # By default, "installing" just makes a relocatable bundle in the build

@@ -414,7 +414,7 @@ void main() {
       boot.noteService.toggleItem(done.id);
       await tester.pumpWidget(_app(boot,
           mobile ? const Scaffold(body: NoteWallPage()) : const MainPanel()));
-      await tester.tap(find.text('全部事项'));
+      await tester.tap(find.text('事项'));
       await tester.pumpAndSettle();
       expect(find.text(other.title), findsOneWidget);
       expect(find.text(done.title), findsNothing);
@@ -445,7 +445,7 @@ void main() {
       expect(find.text(done.title), findsOneWidget);
       expect(find.text(other.title), findsNothing);
       expect(tester.widget<TextField>(field).controller!.text, ' Api ');
-      await tester.tap(find.text(done.title));
+      await tester.tap(find.widgetWithText(ItemTile, done.title));
       await tester.pumpAndSettle();
       await tester.tap(find.text('删除'));
       await tester.pumpAndSettle();
@@ -479,7 +479,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byType(ItemEditorPage), findsNothing);
-      expect(find.text(removed.title), findsNothing);
+      expect(find.widgetWithText(ItemTile, removed.title), findsNothing);
       expect(find.widgetWithText(ItemTile, kept.title), findsOneWidget);
       expect(boot.items.byId(removed.id)!.deletedAt, isNotNull);
       expect(boot.notes.byId(note.id)!.rawContent, note.rawContent);
@@ -508,7 +508,7 @@ void main() {
     });
   }
 
-  for (final section in ['今日', '全部事项']) {
+  for (final section in ['今日', '事项']) {
     testWidgets('编辑$section事项时窗口重新聚焦，保存后列表显示最新内容', (tester) async {
       final boot = await Bootstrap.run(dbPath: ':memory:');
       addTearDown(boot.dispose);
@@ -521,7 +521,7 @@ void main() {
       await tester.pumpWidget(_app(boot, const MainPanel()));
       await tester.tap(find.text(section));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('焦点刷新事项'));
+      await tester.tap(find.widgetWithText(ItemTile, '焦点刷新事项'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextFormField), '焦点切换后保存');
       (tester.state(
@@ -535,7 +535,7 @@ void main() {
       final shown = tester.widget<ItemTile>(find.byType(ItemTile)).item;
       expect(shown.title, '焦点切换后保存');
       expect(shown.isImportant, isTrue);
-      expect(find.text('焦点刷新事项'), findsNothing);
+      expect(find.widgetWithText(ItemTile, '焦点刷新事项'), findsNothing);
     });
   }
 
@@ -578,7 +578,7 @@ void main() {
       await tester.tap(find.text('保存'));
       await tester.pumpAndSettle();
       expect(find.byType(ItemTile), findsOneWidget);
-      expect(find.text('逾期'), findsOneWidget);
+      expect(find.text('逾期 1'), findsOneWidget);
       expect(tester.widget<ItemTile>(find.byType(ItemTile)).item.id, item.id);
       expect(
         boot.items.byId(item.id)!.dueAt?.toLocal(),
@@ -598,16 +598,16 @@ void main() {
       item.copyWith(dueAt: DateTime(now.year, now.month, now.day, 23, 59)),
     );
     await tester.pumpWidget(_app(boot, const MainPanel()));
-    await tester.tap(find.text('今日往返事项'));
+    await tester.tap(find.widgetWithText(ItemTile, '今日往返事项'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('清除截止时间'));
     await tester.tap(find.text('保存'));
     await tester.pumpAndSettle();
     expect(find.byType(ItemTile), findsNothing);
-    await tester.tap(find.text('全部事项'));
+    await tester.tap(find.text('事项'));
     await tester.pumpAndSettle();
     expect(find.byType(ItemTile), findsOneWidget);
-    await tester.tap(find.text('今日往返事项'));
+    await tester.tap(find.widgetWithText(ItemTile, '今日往返事项'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('今天到期'));
     await tester.tap(find.text('保存'));
@@ -705,7 +705,7 @@ void main() {
       expect(shown.priority, Priority.p1);
       expect(shown.status, ItemStatus.todo);
       expect(shown.dueAt?.toLocal(), DateTime(now.year, now.month, now.day, 23, 59));
-      expect(find.text('今日原事项'), findsNothing);
+      expect(find.widgetWithText(ItemTile, '今日原事项'), findsNothing);
       await tester.tap(
         find.descendant(
           of: find.byType(ItemTile),
@@ -789,7 +789,7 @@ void main() {
         _ => NoteDetailPage(noteId: note.id),
       };
       await tester.pumpWidget(_app(boot, Scaffold(body: home)));
-      if (entry == '移动全部事项') await tester.tap(find.text('全部事项'));
+      if (entry == '移动全部事项') await tester.tap(find.text('事项'));
       await tester.pumpAndSettle();
       if (entry == '移动便签详情') {
         await tester.tap(find.byTooltip('编辑事项'));
@@ -943,9 +943,9 @@ void main() {
     final note = boot.noteService.capture('原事项');
     final item = boot.noteService.lineToItem(note.id, 0);
     await tester.pumpWidget(_app(boot, const MainPanel()));
-    await tester.tap(find.text('全部事项'));
+    await tester.tap(find.text('事项'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('原事项'));
+    await tester.tap(find.widgetWithText(ItemTile, '原事项'));
     await tester.pumpAndSettle();
     expect(find.text('编辑事项'), findsOneWidget);
     await tester.enterText(find.byType(TextFormField), '修改后的事项');

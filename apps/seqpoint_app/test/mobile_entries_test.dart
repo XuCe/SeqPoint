@@ -25,14 +25,15 @@ void main() {
     await tester.pumpWidget(app(boot));
     await tester.tap(find.text('我的'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('应用更新'));
-    await tester.tap(find.text('应用更新'));
+    await tester.ensureVisible(find.text('关于与更新'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('关于与更新'));
     await tester.pumpAndSettle();
     expect(find.text('热更新不可用'), findsOneWidget);
     expect(find.text('检查更新'), findsOneWidget);
     await tester.tap(find.byType(BackButton));
     await tester.pumpAndSettle();
-    expect(find.text('应用更新'), findsOneWidget);
+    expect(find.text('关于与更新'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
   testWidgets('回收站可恢复便签及关联事项，返回后数量和标签可见性刷新', (tester) async {
@@ -46,7 +47,10 @@ void main() {
     await tester.pumpWidget(app(boot));
     await tester.tap(find.text('我的'));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('回收站'));
+    expect(find.text('揭走 0 · 回收站 1'), findsOneWidget);
+    await tester.ensureVisible(find.text('已关闭'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('已关闭'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('回收站'));
     await tester.pumpAndSettle();
@@ -58,7 +62,7 @@ void main() {
     expect(find.text('回收站恢复目标'), findsNothing);
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.text('1 张'), findsNothing);
+    expect(find.text('揭走 0 · 回收站 0'), findsOneWidget);
     await tester.tap(find.text('便签').last);
     await tester.pumpAndSettle();
     expect(find.text('回收站恢复目标'), findsOneWidget);
@@ -71,10 +75,10 @@ void main() {
     await tester.pumpWidget(app(boot));
     await tester.tap(find.text('我的'));
     await tester.pumpAndSettle();
-    expect(find.text('1 张'), findsOneWidget);
-    await tester.ensureVisible(find.text('已归档'));
+    expect(find.text('揭走 1 · 回收站 0'), findsOneWidget);
+    await tester.ensureVisible(find.text('已关闭'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('已归档'));
+    await tester.tap(find.text('已关闭'));
     await tester.pumpAndSettle();
     expect(find.text('恢复归档目标'), findsOneWidget);
     await tester.tap(find.text('重新打开'));
@@ -83,7 +87,7 @@ void main() {
     expect(find.text('恢复归档目标'), findsNothing);
     await tester.pageBack();
     await tester.pumpAndSettle();
-    expect(find.text('0 张'), findsOneWidget);
+    expect(find.text('揭走 0 · 回收站 0'), findsOneWidget);
     await tester.tap(find.text('便签').last);
     await tester.pumpAndSettle();
     expect(find.text('恢复归档目标'), findsOneWidget);

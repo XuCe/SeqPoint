@@ -24,8 +24,6 @@ void main() {
       await t.pumpWidget(_app(b));
       await t.tap(find.byTooltip('记一笔'));
       await t.pumpAndSettle();
-      await t.tap(find.text('快速记录'));
-      await t.pumpAndSettle();
       await typeNote(t, '键盘快速记录');
       await t.sendKeyEvent(LogicalKeyboardKey.enter);
       await t.pump();
@@ -60,21 +58,19 @@ void main() {
     await t.pumpAndSettle();
     expect(b.notes.active().single.rawContent, '明天下午开会，带上报告');
   });
-  for (final tab in ['今日', '便签', '全部事项']) {
+  for (final tab in ['今日', '便签', '事项']) {
     testWidgets('从$tab新建后立即显示便签列表，无需切换页面', (t) async {
       final b = await Bootstrap.run(dbPath: ':memory:');
       addTearDown(b.dispose);
       final old = b.noteService.capture('已有便签');
       await t.pumpWidget(_app(b));
-      await t.tap(find.text(tab == '全部事项' ? '便签' : tab));
+      await t.tap(find.text(tab == '事项' ? '便签' : tab));
       await t.pumpAndSettle();
-      if (tab == '全部事项') {
+      if (tab == '事项') {
         await t.tap(find.text(tab));
         await t.pumpAndSettle();
       }
       await t.tap(find.byTooltip('记一笔'));
-      await t.pumpAndSettle();
-      await t.tap(find.text('快速记录'));
       await t.pumpAndSettle();
       await typeNote(t, '移动新便签');
       await t.enterText(find.widgetWithText(TextField, '标题（选填）'), '出差安排');
@@ -114,8 +110,6 @@ void main() {
       if (action == '关闭面板') {
         await t.binding.handlePopRoute();
       } else {
-        await t.tap(find.text('快速记录'));
-        await t.pumpAndSettle();
         await typeNote(t,
           action == '空白保存' ? ' \n ' : '取消不应保存');
         if (action == '系统返回') {
@@ -140,8 +134,6 @@ void main() {
         "BEGIN SELECT RAISE(ABORT, 'test'); END;");
       await t.pumpWidget(_app(b));
       await t.tap(find.byTooltip('记一笔'));
-      await t.pumpAndSettle();
-      await t.tap(find.text('快速记录'));
       await t.pumpAndSettle();
       await typeNote(t, '失败后重试便签');
       await t.tap(find.text('保存'));

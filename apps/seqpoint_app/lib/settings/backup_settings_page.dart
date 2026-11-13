@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:seqpoint_core/seqpoint_core.dart';
 
 import '../app/app_scope.dart';
+import '../theme/seq_tokens.dart';
 import 'settings_scaffold.dart';
 
 /// 备份与导出：四层备份的开关与恢复入口。
@@ -173,23 +174,41 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
     final enabled = scope.database != null && !scope.restoring;
     final canRestore = enabled && scope.restoreSnapshot != null;
     return SettingsScaffold(
-      title: '备份与导出',
-      footnote: 'JSON / Markdown 为未加密的可读导出，含未删除便签（含归档）、'
+      title: '备份与恢复',
+      footnote: 'JSON / Markdown 为未加密的可读导出，含未删除便签（含已揭走）、'
           '事项及关联标签，不含密钥，不能用于快照恢复。'
           '本机快照不包含系统安全存储中的可用凭据及外部附件。',
       children: [
         if (_busy) const LinearProgressIndicator(),
-        SettingsGroup(
-          label: '未加密本机快照',
+        SettingsCard(
+          icon: Icons.history_rounded,
+          title: '未加密本机快照',
+          subtitle: '把整个数据库另存一份独立副本，不覆盖、不自动删除。'
+              '恢复前先校验，并自动保留当前数据的保护副本。',
           children: [
-            ListTile(title: const Text('立即备份'),
-              subtitle: const Text('保留独立副本，不覆盖或自动删除手动快照'),
-              trailing: const Icon(Icons.save_outlined, size: 18),
-              onTap: _busy || !enabled ? null : _backup),
-            ListTile(title: const Text('从本机快照恢复'),
-              subtitle: const Text('需确认替换当前数据；JSON和Markdown不能用于恢复'),
-              trailing: const Icon(Icons.folder_open_outlined, size: 18),
-              onTap: _busy || !canRestore ? null : _pickRestore),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(62, 4, 16, 8),
+              child: Wrap(spacing: 8, runSpacing: 8, children: [
+                FilledButton.icon(
+                  onPressed: _busy || !enabled ? null : _backup,
+                  style: FilledButton.styleFrom(backgroundColor: SeqTokens.ink,
+                      foregroundColor: SeqTokens.paper),
+                  icon: const Icon(Icons.save_outlined, size: 18),
+                  label: const Text('立即备份'),
+                ),
+                OutlinedButton.icon(
+                  onPressed: _busy || !canRestore ? null : _pickRestore,
+                  icon: const Icon(Icons.folder_open_outlined, size: 18),
+                  label: const Text('从本机快照恢复'),
+                ),
+              ]),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(62, 0, 16, 6),
+              child: Text('需确认替换当前数据；JSON 和 Markdown 不能用于恢复',
+                  style: TextStyle(fontSize: 12.5, color: SeqTokens.inkMuted)),
+            ),
+            const Divider(height: 1, color: SeqTokens.lineSoft),
             FutureBuilder<List<Snapshot>>(
               future: _snapshotList,
               builder: (context, snapshot) {
@@ -199,11 +218,19 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
                 }
                 final all = snapshot.data;
                 if (all == null) return ListTile(title: Text(enabled ? '正在读取本机快照' : '本机数据未就绪'));
-                if (all.isEmpty) return const ListTile(title: Text('尚无本机快照'));
+                if (all.isEmpty) {
+                  return const ListTile(
+                    leading: Icon(Icons.inbox_outlined, size: 20, color: SeqTokens.inkFaint),
+                    title: Text('尚无本机快照'),
+                  );
+                }
                 return Column(children: [for (final entry in all) ListTile(
-                  title: Text('${entry.createdAt.toLocal()}'),
+                  leading: const Icon(Icons.inventory_2_outlined, size: 20, color: SeqTokens.inkSoft),
+                  title: Text(_stamp(entry.createdAt)),
                   subtitle: Text('SQLite · 未校验（恢复前校验）\n'
-                      '${(entry.bytes / 1024).toStringAsFixed(1)} KB\n${entry.file.path}'),
+                      '${(entry.bytes / 1024).toStringAsFixed(1)} KB\n${entry.file.path}',
+                      style: const TextStyle(fontSize: 12.5, height: 1.5)),
+                  isThreeLine: true,
                   trailing: canRestore ? const Icon(Icons.restore, size: 18) : null,
                   onTap: _busy || !canRestore ? null : () => _confirmRestore(entry.file),
                 )]);
@@ -211,25 +238,35 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
             ),
           ],
         ),
-        SettingsGroup(
-          label: '明文导出',
+        SettingsCard(
+          icon: Icons.ios_share_rounded,
+          title: '导出',
+          subtitle: '导出成别的软件也能读的格式。未加密，只用于迁移和查看，不能用于恢复。',
           children: [
             ListTile(
-              title: Text('导出为 JSON'),
-              subtitle: Text('未加密的可读数据，包含归档'),
-              trailing: Icon(Icons.chevron_right, size: 18),
-              onTap: _busy || !enabled ? null : () => _export(false),
-            ),
-            ListTile(
-              title: Text('导出为 Markdown'),
+              contentPadding: const EdgeInsets.fromLTRB(62, 0, 16, 0),
+              title: const Text('导出为 Markdown'),
               subtitle: Text(_mobile ? 'ZIP压缩包，内含便签和独立事项的Markdown文件'
                   : '一张便签一个文件，别的笔记软件也能读'),
-              trailing: Icon(Icons.chevron_right, size: 18),
+              trailing: const Icon(Icons.chevron_right, size: 18),
               onTap: _busy || !enabled ? null : () => _export(true),
+            ),
+            ListTile(
+              contentPadding: const EdgeInsets.fromLTRB(62, 0, 16, 4),
+              title: const Text('导出为 JSON'),
+              subtitle: const Text('完整的结构化数据，包含已揭走的便签'),
+              trailing: const Icon(Icons.chevron_right, size: 18),
+              onTap: _busy || !enabled ? null : () => _export(false),
             ),
           ],
         ),
       ],
     );
+  }
+
+  static String _stamp(DateTime t) {
+    t = t.toLocal();
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${t.year}-${two(t.month)}-${two(t.day)} ${two(t.hour)}:${two(t.minute)}';
   }
 }

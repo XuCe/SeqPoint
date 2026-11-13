@@ -8,18 +8,25 @@ abstract final class SeqTokens {
   static const paper = Color(0xFFFAF8F3);
   static const raised = Color(0xFFFFFFFF);
   static const ink = Color(0xFF262219);
-  static const inkMuted = Color(0xFF6E675A);
+  static const inkSoft = Color(0xFF4A4437);
+  static const inkMuted = Color(0xFF6B6457);
+  static const inkFaint = Color(0xFF8C8475);
   static const line = Color(0xFFE7E1D2);
   static const lineSoft = Color(0xFFF0EBDE);
   static const accent = Color(0xFFF1C232);
   static const accentSoft = Color(0xFFFBF0CC);
-  static const accentInk = Color(0xFF8A6B14);
+  static const accentInk = Color(0xFF7E6112);
+
+  /// 侧栏与底部导航的底色，比纸面略深一层。
+  static const chrome = Color(0xFFF6F3EC);
+  static const chip = Color(0xFFF3EFE6);
 
   // 语义色
   static const goodInk = Color(0xFF3E7A4E);
   static const goodBg = Color(0xFFE4F0E5);
   static const dangerInk = Color(0xFFA0453E);
   static const dangerBg = Color(0xFFF5E2DF);
+  static const syncDot = Color(0xFF4E9A62);
 
   // 便签纸（明暗一致）
   static const noteYellow = Color(0xFFF6DC85);
