@@ -57,6 +57,7 @@ Future<void> main([List<String> args = const []]) async {
       addTearDown(boot.dispose);
       await windowManager.ensureInitialized();
       final current = await WindowController.fromCurrentEngine();
+      final mainBounds = await windowManager.getBounds();
       // Exercise setup before any taskbar interface has been initialized.
       final setup = StickyWindowSetup.prepare(
         '{"type":"sticky","noteId":"native-setup",'
@@ -68,11 +69,15 @@ Future<void> main([List<String> args = const []]) async {
       await windowManager.focus();
       final mainHasForeground = await windowManager.isFocused();
       expect(await windowManager.isSkipTaskbar(), isTrue);
+      // The setup probe resized the host to a sticky. Show the wall at its
+      // original main-window size before trying to click its cards.
+      await windowManager.setBounds(mainBounds);
       final windows = DesktopWindowService();
       await tester.pumpWidget(AppScope(noteService: boot.noteService, notes: boot.notes,
           items: boot.items, tags: boot.tags, search: boot.search, windows: windows,
           child: const MaterialApp(home: Scaffold(body: NoteWallView()))));
-      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(find.byType(GridView), findsOneWidget);
       late Completer<String> ready;
       final visibleDuringLoad = <bool>[];
       final bodies = <String?>[];
@@ -104,7 +109,10 @@ Future<void> main([List<String> args = const []]) async {
         openingNote = note;
         ready = Completer<String>();
         final card = find.byWidgetPredicate((w) => w is NoteCard && w.note.id == note);
-        await tester.ensureVisible(card);
+        await tester.scrollUntilVisible(card, 100,
+            scrollable: find.descendant(of: find.byType(GridView),
+                matching: find.byType(Scrollable)));
+        expect(card.hitTestable(), findsOneWidget);
         final clock = Stopwatch()..start();
         await tester.tap(card);
         await tester.tap(card);
