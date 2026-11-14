@@ -110,7 +110,7 @@ class AddDeviceSession extends ChangeNotifier {
 
 extension _AppSyncJoin on AppSyncService {
   Future<void> _joinWithLink(String text, void Function(String step)? onProgress,
-      bool Function()? cancelled) async {
+      bool Function()? cancelled, bool leaveCurrentVault) async {
     final link = DeviceJoinLink.parse(text);
     bool stopped() => _closed || (cancelled?.call() ?? false);
     void step(String message) {
@@ -130,14 +130,13 @@ extension _AppSyncJoin on AppSyncService {
       final vault = payload['vault_id'];
       final reconnect = hasVault && vault == relayVaultId;
       if (hasVault && !reconnect) {
-        if (!await _isSoloVault()) {
-          throw const FormatException('这台设备已和其他设备组成了另一个同步空间。'
-              '请在那个空间里已连接服务器的设备上点「添加设备」，或先让该空间连接同步服务器');
+        if (!leaveCurrentVault && !await _isSoloVault()) {
+          throw VaultSwitchRequired(await _vaultSummary());
         }
-        // 先验证邀请签名和有效期，再退出本机原有的单机空间；便签数据不受影响。
+        // 先验证邀请签名和有效期，再退出本机原有的空间；便签数据不受影响。
         await PairingInvitation.fromQr(payload);
-        step('正在退出本机原有的单机同步空间');
-        await _leaveSoloVault();
+        step('正在退出本机原有的同步空间');
+        await _leaveVault();
       }
       if (reconnect && await gatewayOrigin() == link.origin) return;
       final session = await respondToInvitation(payload);
@@ -178,16 +177,37 @@ extension _AppSyncJoin on AppSyncService {
     }
   }
 
-  /// 本机自建、没有其他成员、也从未连接过服务器的空间：退出它不会影响任何其他设备。
+  /// 本机自建、没有其他成员、也从未连接过服务器的空间：退出它不会影响任何其他设备，无需确认。
   Future<bool> _isSoloVault() async =>
       hasVault && !_requiresNewIdentity && !hasMembershipConflict && verifiedPeers.isEmpty &&
       (await _relaySetting()).isEmpty && await pendingHostedInvite() == null;
 
-  /// 退出单机空间：清掉同步历史和空间密钥，保留设备身份与全部便签、事项、附件。
-  Future<void> _leaveSoloVault() => _run(() async {
+  /// 说明原空间里有什么，供用户决定是否切换。
+  Future<List<String>> _vaultSummary() async {
+    final reasons = <String>[];
+    final peers = verifiedPeers.length;
+    if (peers > 0) reasons.add('原空间里还有 $peers 台其他设备（它们不受影响，之后可在它们上面撤销本机）');
+    final relay = await _relaySetting();
+    if (relay.startsWith('gateway+')) {
+      reasons.add('原空间连接着同步服务器 ${Uri.tryParse(relay.substring(8))?.authority ?? relay.substring(8)}');
+    } else if (relay.isNotEmpty) {
+      reasons.add('原空间保存了旧版的节点地址 ${Uri.tryParse(relay)?.authority ?? relay}');
+    }
+    if (await pendingHostedInvite() != null) reasons.add('原空间有一次未完成的服务器登记');
+    if (hasMembershipConflict) reasons.add('原空间的成员记录有冲突');
+    if (reasons.isEmpty) reasons.add('本机已加入另一个同步空间');
+    return reasons;
+  }
+
+  /// 退出当前空间：先记下"正在退出"，中途中断时下次启动会自动完成，不会卡在半退出状态。
+  Future<void> _leaveVault() => _run(() async {
     _requirePrepared();
     _requireNormalMode();
-    final local = _local!;
+    if (!hasVault) return;
+    final local = _local!, vault = relayVaultId!, pending = _pendingKey;
+    final prefs = await SharedPreferences.getInstance();
+    if (!await prefs.setBool(AppSyncService._leavingKey, true)) throw StateError('退出状态保存失败');
+    _automatic?.suspend();
     await _runtime?.stop();
     _runtime = null;
     await _controller?.stop();
@@ -197,12 +217,35 @@ extension _AppSyncJoin on AppSyncService {
     _baselineReady = false;
     _listeningPort = null;
     _paused = false;
-    // 先清数据库：若此后中断，重启会以原单机空间重新启用，不会卡在半退出状态。
-    db.leaveSoloSyncVault();
-    await _membershipStore(local).discardSolo(local.keys);
-    if (await root.exists()) await root.delete(recursive: true);
-    await root.create(recursive: true);
+    await prefs.remove('sync.relay.$vault');
+    if (pending != null) await secrets.delete(pending);
+    await secrets.delete('sync.gateway.newVault.${local.keys.deviceId}');
+    _automaticEndpoint = '';
+    _relayMessages.remove(vault);
+    _relaySettingsRevision++;
+    _lastRound = null;
     await _prepare(local.identity.name);
     if (hasVault) throw StateError('退出原同步空间失败');
   });
+
+  Future<void> _finishLeave(LocalDeviceIdentity local) async {
+    final prefs = await SharedPreferences.getInstance();
+    final restoring = db.raw.select('SELECT requires_new_identity FROM sync_local WHERE id=1')
+        .single['requires_new_identity'] == 1;
+    if (!restoring) {
+      db.leaveSyncVault();
+      await _membershipStore(local).discard();
+      if (await root.exists()) await root.delete(recursive: true);
+      await root.create(recursive: true);
+    }
+    if (!await prefs.remove(AppSyncService._leavingKey)) throw StateError('退出状态保存失败');
+  }
+}
+
+/// 加入新空间前需要用户确认退出本机当前所在的空间。
+class VaultSwitchRequired implements Exception {
+  const VaultSwitchRequired(this.reasons);
+  final List<String> reasons;
+  @override
+  String toString() => '这台设备已在另一个同步空间里：${reasons.join('；')}';
 }

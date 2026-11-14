@@ -53,6 +53,9 @@ class AppSyncService extends ChangeNotifier {
         _local!.keys.signer, member.signingPublicKey, gateway: true);
   }
 
+  static const _leavingKey = 'sync.leavingVault';
+  /// 本机退出当前同步空间：便签、事项、附件都保留，其他设备不受影响。
+  Future<void> leaveVault() => _leaveVault();
   AddDeviceSession? _joining;
   /// 在已连接同步服务器的设备上生成一次性加入链接，等待新设备加入。
   AddDeviceSession startAddDevice() {
@@ -62,14 +65,18 @@ class AppSyncService extends ChangeNotifier {
     return session;
   }
   /// 新设备打开已连接设备给出的加入链接：经同步服务器配对并登记。
+  /// 本机已在另一个同步空间时抛出 [VaultSwitchRequired]；用户确认后以
+  /// [leaveCurrentVault] 重试，先退出原空间再加入。
   Future<void> joinWithLink(String link, {void Function(String step)? onProgress,
-      bool Function()? cancelled}) => _joinWithLink(link, onProgress, cancelled);
+      bool Function()? cancelled, bool leaveCurrentVault = false}) =>
+      _joinWithLink(link, onProgress, cancelled, leaveCurrentVault);
 
   /// 粘贴框的统一入口：服务器邀请或已连接设备的加入链接。
   Future<void> connectWithLink(String link, {void Function(String step)? onProgress,
-      bool Function()? cancelled}) async {
+      bool Function()? cancelled, bool leaveCurrentVault = false}) async {
     if (DeviceJoinLink.looksLike(link)) {
-      return joinWithLink(link, onProgress: onProgress, cancelled: cancelled);
+      return joinWithLink(link, onProgress: onProgress, cancelled: cancelled,
+          leaveCurrentVault: leaveCurrentVault);
     }
     final HostedInvite invite;
     try {
@@ -256,6 +263,10 @@ class AppSyncService extends ChangeNotifier {
         ? await identities.loadForDevice(writer['device_id'] as String)
         : await identities.loadOrCreate(name);
     await _selectLocal(local);
+    if ((await SharedPreferences.getInstance()).getBool(AppSyncService._leavingKey) == true) {
+      await _finishLeave(local);
+      return _prepare(name);
+    }
     _tls ??= await SyncTlsStore(secrets).loadOrCreate();
     if (_controller == null) {
       _controller = SyncMembershipController(store: _membershipStore(_local!),

@@ -92,14 +92,77 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   Future<void> _connect(AppSyncService service) => _run(service, () async {
     final link = _link.text.trim();
     if (link.isEmpty) throw const FormatException('请先粘贴链接或扫一扫');
-    await service.connectWithLink(link, cancelled: () => !mounted,
-        onProgress: (step) { if (mounted) setState(() => _progress = step); });
+    void progress(String step) { if (mounted) setState(() => _progress = step); }
+    try {
+      await service.connectWithLink(link, cancelled: () => !mounted, onProgress: progress);
+    } on VaultSwitchRequired catch (required) {
+      if (!mounted) return;
+      setState(() => _progress = null);
+      if (!await _confirmSwitch(required.reasons) || !mounted) return;
+      await service.connectWithLink(link, cancelled: () => !mounted, onProgress: progress,
+          leaveCurrentVault: true);
+    }
     if (!mounted) return;
     _link.clear();
     ScaffoldMessenger.of(context)..clearSnackBars()
       ..showSnackBar(const SnackBar(content: Text('已连接同步服务器，正在同步')));
     unawaited(service.syncRelay().then<void>((_) {}, onError: (Object _) {}));
   }, message: _linkError);
+
+  Future<bool> _confirmSwitch(List<String> reasons) async {
+    _confirming = true;
+    try {
+      return await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
+        scrollable: true,
+        title: const Text('换到新的同步空间？'),
+        content: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('这台设备目前在另一个同步空间里：'),
+            const SizedBox(height: 8),
+            for (final reason in reasons) Padding(
+              padding: const EdgeInsets.only(bottom: 4),
+              child: Text('· $reason'),
+            ),
+            const SizedBox(height: 8),
+            const Text('继续后本机会先退出原空间，再加入新空间。'
+                '本机的便签、事项、标签和附件都会保留，并合并到新空间。'),
+          ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('退出原空间并加入')),
+        ],
+      )) ?? false;
+    } finally {
+      _confirming = false;
+    }
+  }
+
+  Future<void> _confirmLeave(AppSyncService service, {required bool connected}) =>
+      _run(service, () async {
+    _confirming = true;
+    bool? confirmed;
+    try {
+      confirmed = await showDialog<bool>(context: context, builder: (dialog) => AlertDialog(
+        scrollable: true,
+        title: const Text('退出同步空间？'),
+        content: Text('本机的便签、事项、标签和附件都会保留，只是不再与其他设备同步。'
+            '${connected ? '\n其他设备不受影响；需要时可在它们的「设备与同步」里撤销本机。' : ''}'
+            '\n之后可以粘贴服务器邀请或加入链接，重新开始同步。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialog, false), child: const Text('取消')),
+          FilledButton(onPressed: () => Navigator.pop(dialog, true), child: const Text('退出')),
+        ],
+      ));
+    } finally {
+      _confirming = false;
+    }
+    if (confirmed != true || !mounted) return;
+    await service.leaveVault();
+    if (mounted) {
+      ScaffoldMessenger.of(context)..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('已退出同步空间，本机数据已保留')));
+    }
+  });
 
   Future<void> _paste() async {
     final clip = await Clipboard.getData(Clipboard.kTextPlain);
@@ -212,6 +275,19 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
         else _connectCard(service, disabled),
       ],
       if (recovering || conflicted) _recovery(service, disabled, peers, peerRow),
+      if (service.hasVault && !recovering) SettingsGroup(label: '本机同步空间', children: [
+        ListTile(
+          title: const Text('退出同步空间'),
+          subtitle: const Text('本机数据都会保留。退出后可重新连接服务器，或加入其他设备所在的空间。'),
+          trailing: OutlinedButton(
+            key: const ValueKey('sync-leave'),
+            onPressed: disabled ? null : () => _confirmLeave(service, connected: connected),
+            style: OutlinedButton.styleFrom(foregroundColor: SeqTokens.dangerInk,
+                side: const BorderSide(color: SeqTokens.line)),
+            child: const Text('退出'),
+          ),
+        ),
+      ]),
     ]);
   }
 

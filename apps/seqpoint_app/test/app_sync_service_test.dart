@@ -217,7 +217,7 @@ void main() {
 
     final steps = <String>[];
     await b.service.connectWithLink(join, onProgress: steps.add);
-    expect(steps, containsAllInOrder(['正在退出本机原有的单机同步空间', '等待已连接设备确认', '正在连接同步服务器']));
+    expect(steps, containsAllInOrder(['正在退出本机原有的同步空间', '等待已连接设备确认', '正在连接同步服务器']));
     expect(b.service.relayVaultId, isNot(soloVault));
     expect(await b.service.gatewayOrigin(), origin);
     expect(b.service.relayVaultId, a.service.relayVaultId);
@@ -254,12 +254,56 @@ void main() {
     for (var i = 0; again.stage == AddDeviceStage.preparing && i < 100; i++) {
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
-    await expectLater(d.service.connectWithLink(again.link.toString()), throwsA(isA<FormatException>()
-        .having((error) => error.message, 'message', contains('添加设备'))));
+    ItemRepository(d.db).insert(item('switch-before', '切换空间前的事项'));
+    await expectLater(d.service.connectWithLink(again.link.toString()), throwsA(isA<VaultSwitchRequired>()
+        .having((error) => error.reasons.join(), 'reasons', contains('1 台其他设备'))));
     expect(d.service.relayVaultId, shared);
     expect(d.service.verifiedPeers.single.deviceId, e.service.identity!.deviceId);
+    // 用户确认后：退出原空间再加入，本机数据保留并同步到新空间。
+    await d.service.connectWithLink(again.link.toString(), leaveCurrentVault: true);
+    expect(d.service.relayVaultId, a.service.relayVaultId);
+    expect(await d.service.gatewayOrigin(), origin);
+    expect(e.service.relayVaultId, shared);
+    await d.service.syncRelay();
+    await a.service.syncRelay();
+    expect(ItemRepository(a.db).byId('switch-before')?.title, '切换空间前的事项');
   }, timeout: const Timeout(Duration(minutes: 3)),
       skip: gatewayAdmin == null ? 'requires disposable gateway (scripts/sync_acceptance/verify_gateway.py)' : false);
+
+  test('leaving a shared vault keeps local data and an interrupted leave finishes on restart', () async {
+    SharedPreferences.setMockInitialValues({});
+    final a = await node(21), b = await node(22);
+    await a.service.prepare('A'); await b.service.prepare('B');
+    await a.service.newVault();
+    final pair = await _pair(a.service, b.service);
+    await b.service.finishGuest(pair.guest, await a.service.finishHost(pair.host));
+    ItemRepository(b.db).insert(Item(id: 'kept', title: '退出后仍保留', status: ItemStatus.todo,
+        priority: Priority.p4, source: ItemSource.manual,
+        createdAt: DateTime.now().toUtc(), updatedAt: DateTime.now().toUtc()));
+    final device = b.service.identity!.deviceId;
+    await b.service.leaveVault();
+    expect(b.service.hasVault, isFalse);
+    expect(b.service.identity!.deviceId, device);
+    expect(ItemRepository(b.db).byId('kept')?.title, '退出后仍保留');
+    expect(b.secrets.values.containsKey(SyncMembershipStore.storageKey), isFalse);
+    expect(b.db.raw.select('SELECT 1 FROM sync_operations'), isEmpty);
+    expect(a.service.verifiedPeers.single.deviceId, device);
+    // 退出后可以重新建立空间，基线重新发布本机数据。
+    await b.service.newVault();
+    expect(b.service.canSync, isTrue);
+    expect(b.db.raw.select('SELECT 1 FROM sync_operations'), isNotEmpty);
+
+    // 模拟退出中途被杀：只写了"正在退出"标记。下次启动自动完成退出，而不是卡住。
+    await (await SharedPreferences.getInstance()).setBool('sync.leavingVault', true);
+    await b.service.stop();
+    final reopened = AppSyncService(db: b.db, root: b.root, secrets: b.secrets);
+    addTearDown(() async { await reopened.stop(); reopened.dispose(); });
+    await reopened.prepare('B');
+    expect(reopened.hasVault, isFalse);
+    expect(reopened.identity!.deviceId, device);
+    expect((await SharedPreferences.getInstance()).getBool('sync.leavingVault'), isNull);
+    expect(ItemRepository(b.db).byId('kept')?.title, '退出后仍保留');
+  });
 
   test('relay address persists per vault and invalid origins are rejected', () async {
     SharedPreferences.setMockInitialValues({});

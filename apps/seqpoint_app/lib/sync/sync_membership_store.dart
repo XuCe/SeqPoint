@@ -183,14 +183,8 @@ class SyncMembershipStore {
     });
   }
 
-  /// 删除只有本机一个成员的空间记录（退出单机空间）；还有其他成员时拒绝。
-  Future<void> discardSolo(DeviceKeys localDevice) => _enqueue(() async {
-    final saved = await _load(localDevice);
-    if (saved == null) return;
-    if (saved.membership.isConflicted ||
-        saved.state.members.keys.any((id) => id != localDevice.deviceId)) {
-      throw StateError('同步空间里还有其他设备');
-    }
+  /// 本机退出同步空间时删除空间记录与密钥；其他设备不受影响。
+  Future<void> discard() => _enqueue(() async {
     await _secrets.delete(_storageKey);
     if (await _secrets.read(_storageKey) != null) throw StateError('成员记录删除失败');
   });

@@ -21,8 +21,12 @@ class _Sync extends AppSyncService {
   bool get mediaSyncEnabled => false;
   bool ready = false, paired = false, failPrepare = false, pending = false;
   String? origin, failure;
-  int prepares = 0, syncs = 0, retries = 0;
+  int prepares = 0, syncs = 0, retries = 0, leaves = 0;
+  bool otherVault = false;
   final links = <String>[];
+  final leaveFlags = <bool>[];
+  @override
+  Future<void> leaveVault() async { leaves++; paired = false; otherVault = false; notifyListeners(); }
   Completer<void>? gate;
   Object? linkError;
   @override
@@ -49,8 +53,12 @@ class _Sync extends AppSyncService {
   Future<void> retryEnrollment() async { retries++; pending = false; origin = 'http://nas.local:8385'; notifyListeners(); }
   @override
   Future<void> connectWithLink(String link, {void Function(String step)? onProgress,
-      bool Function()? cancelled}) async {
+      bool Function()? cancelled, bool leaveCurrentVault = false}) async {
     links.add(link);
+    leaveFlags.add(leaveCurrentVault);
+    if (otherVault && !leaveCurrentVault) {
+      throw const VaultSwitchRequired(['原空间保存了旧版的节点地址 relay.example.com']);
+    }
     onProgress?.call('正在连接同步服务器');
     await gate?.future;
     if (linkError case final error?) throw error;
@@ -128,6 +136,48 @@ void main() {
     expect(find.text('加入链接已过期或已被使用，请在已连接的设备上重新生成'), findsOneWidget);
     expect(find.text('http://nas.local:8385/join#x'), findsOneWidget);
     expect(find.text('已连接同步服务器'), findsNothing);
+  });
+
+  testWidgets('已在另一个空间时说明原因，确认后退出原空间再加入', (tester) async {
+    final sync = _Sync(SeqDatabase.inMemory())..ready = true..paired = true..otherVault = true;
+    addTearDown(() { sync.db.close(); sync.dispose(); });
+    await _mount(tester, sync);
+    await tester.enterText(find.byKey(const ValueKey('sync-link')), 'http://nas.local:8385/join#${'k' * 43}');
+    await tester.tap(find.widgetWithText(FilledButton, '连接'));
+    await tester.pumpAndSettle();
+    expect(find.text('换到新的同步空间？'), findsOneWidget);
+    expect(find.textContaining('relay.example.com'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(sync.leaveFlags, [false]);
+    expect(find.text('已连接同步服务器'), findsNothing);
+    await tester.tap(find.widgetWithText(FilledButton, '连接'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('退出原空间并加入'));
+    await tester.pumpAndSettle();
+    expect(sync.leaveFlags, [false, false, true]);
+    expect(find.text('已连接同步服务器'), findsOneWidget);
+  });
+
+  testWidgets('任何时候都能退出同步空间，确认后才执行', (tester) async {
+    final sync = _Sync(SeqDatabase.inMemory())..ready = true..paired = true;
+    addTearDown(() { sync.db.close(); sync.dispose(); });
+    await _mount(tester, sync);
+    await tester.scrollUntilVisible(find.byKey(const ValueKey('sync-leave')), 200,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.byKey(const ValueKey('sync-leave')));
+    await tester.pumpAndSettle();
+    expect(find.text('退出同步空间？'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    expect(sync.leaves, 0);
+    await tester.tap(find.byKey(const ValueKey('sync-leave')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '退出'));
+    await tester.pumpAndSettle();
+    expect(sync.leaves, 1);
+    expect(find.byKey(const ValueKey('sync-leave')), findsNothing);
+    expect(find.byKey(const ValueKey('sync-link')), findsOneWidget);
   });
 
   testWidgets('登记中断后显示重试，而不是重新要链接', (tester) async {
