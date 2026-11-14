@@ -112,5 +112,20 @@ class SeqDatabase {
     raw.execute('INSERT INTO sync_local(id,requires_new_identity) VALUES (1,1)');
   });
 
+  /// 退出仅本机一台设备、从未与他人交换过的同步空间：清掉同步历史，保留身份与全部业务数据。
+  /// 调用方须先确认没有其他成员；之后加入新空间时由初始基线重新发布现有内容。
+  void leaveSoloSyncVault() => transaction(() {
+    final state = raw.select('SELECT requires_new_identity FROM sync_local WHERE id=1').single;
+    if (state['requires_new_identity'] != 0) throw StateError('恢复状态不能直接退出同步空间');
+    raw.execute('DELETE FROM sync_checkpoint_staging');
+    raw.execute('DELETE FROM sync_checkpoints');
+    raw.execute('DELETE FROM sync_received_segments');
+    raw.execute('DELETE FROM sync_operations');
+    raw.execute('DELETE FROM sync_publications');
+    raw.execute('DELETE FROM sync_state');
+    raw.execute('DELETE FROM devices');
+    raw.execute('UPDATE sync_local SET device_id=NULL,enabled=0,baseline_ready=0,pending_count=0 WHERE id=1');
+  });
+
   void close() => raw.dispose();
 }

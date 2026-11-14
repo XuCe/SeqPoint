@@ -37,6 +37,22 @@ void main() {
     expect(SyncBaseline(db, clock: clock).initialize('writer'), 0);
     expect(facts(db).map((op) => op.opId), ids);
   });
+  test('退出单机空间保留业务数据与时钟，之后可重新建立基线', () {
+    ItemRepository(db).insert(Item(id: 'i1', title: '存量事项', status: ItemStatus.todo,
+        priority: Priority.p1, source: ItemSource.manual, createdAt: clock.now(), updatedAt: clock.now()));
+    final first = SyncBaseline(db, clock: clock).initialize('writer');
+    expect(first, greaterThan(0));
+    final hlc = db.raw.select('SELECT hlc_millis FROM sync_local').single['hlc_millis'];
+    db.leaveSoloSyncVault();
+    expect(facts(db), isEmpty);
+    final state = db.raw.select('SELECT * FROM sync_local').single;
+    expect(state['device_id'], isNull); expect(state['enabled'], 0); expect(state['baseline_ready'], 0);
+    expect(state['hlc_millis'], hlc);
+    expect(ItemRepository(db).byId('i1')!.title, '存量事项');
+    expect(SyncBaseline(db, clock: clock).initialize('writer'), first);
+    db.disconnectSyncForRestore();
+    expect(db.leaveSoloSyncVault, throwsStateError);
+  });
   test('空库也持久ready并幂等，不能切writer或关闭后静默重新启用', () {
     final baseline = SyncBaseline(db, clock: clock);
     expect(baseline.initialize('writer'), 0);

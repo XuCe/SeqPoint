@@ -188,11 +188,17 @@ void main() {
     }
     SharedPreferences.setMockInitialValues({});
     final a = await node(11), b = await node(12), c = await node(13);
+    final d = await node(14), e = await node(15);
     Item item(String id, String title) => Item(id: id, title: title, status: ItemStatus.todo,
         priority: Priority.p4, source: ItemSource.manual,
         createdAt: DateTime.now().toUtc(), updatedAt: DateTime.now().toUtc());
     ItemRepository(a.db).insert(item('host-before', '首台设备已有事项'));
     ItemRepository(b.db).insert(item('guest-before', '新设备加入前的事项'));
+    // 新设备以前自建过单机同步空间（没有其他成员、没连过服务器）：加入时自动退出，数据保留。
+    await b.service.prepare('second');
+    await b.service.newVault();
+    final soloVault = b.service.relayVaultId;
+    expect(soloVault, isNotNull);
 
     await expectLater(a.service.connectWithLink('https://example.test/somewhere'), throwsFormatException);
     await a.service.connectWithLink(invite);
@@ -211,7 +217,8 @@ void main() {
 
     final steps = <String>[];
     await b.service.connectWithLink(join, onProgress: steps.add);
-    expect(steps, containsAllInOrder(['等待已连接设备确认', '正在连接同步服务器']));
+    expect(steps, containsAllInOrder(['正在退出本机原有的单机同步空间', '等待已连接设备确认', '正在连接同步服务器']));
+    expect(b.service.relayVaultId, isNot(soloVault));
     expect(await b.service.gatewayOrigin(), origin);
     expect(b.service.relayVaultId, a.service.relayVaultId);
     for (var i = 0; adding.stage != AddDeviceStage.done && i < 100; i++) {
@@ -235,6 +242,22 @@ void main() {
     await expectLater(c.service.connectWithLink(join), throwsFormatException);
     expect(c.service.hasVault, isFalse);
     expect(await c.service.gatewayOrigin(), isNull);
+
+    // 已和其他设备组成空间的设备不会被静默拆散。
+    await d.service.prepare('D'); await e.service.prepare('E');
+    await d.service.newVault();
+    final pair = await _pair(d.service, e.service);
+    await e.service.finishGuest(pair.guest, await d.service.finishHost(pair.host));
+    final shared = d.service.relayVaultId;
+    final again = a.service.startAddDevice();
+    addTearDown(again.cancel);
+    for (var i = 0; again.stage == AddDeviceStage.preparing && i < 100; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+    await expectLater(d.service.connectWithLink(again.link.toString()), throwsA(isA<FormatException>()
+        .having((error) => error.message, 'message', contains('添加设备'))));
+    expect(d.service.relayVaultId, shared);
+    expect(d.service.verifiedPeers.single.deviceId, e.service.identity!.deviceId);
   }, timeout: const Timeout(Duration(minutes: 3)),
       skip: gatewayAdmin == null ? 'requires disposable gateway (scripts/sync_acceptance/verify_gateway.py)' : false);
 

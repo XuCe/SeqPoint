@@ -130,7 +130,14 @@ extension _AppSyncJoin on AppSyncService {
       final vault = payload['vault_id'];
       final reconnect = hasVault && vault == relayVaultId;
       if (hasVault && !reconnect) {
-        throw const FormatException('这台设备已属于另一个同步空间，不能直接加入');
+        if (!await _isSoloVault()) {
+          throw const FormatException('这台设备已和其他设备组成了另一个同步空间。'
+              '请在那个空间里已连接服务器的设备上点「添加设备」，或先让该空间连接同步服务器');
+        }
+        // 先验证邀请签名和有效期，再退出本机原有的单机空间；便签数据不受影响。
+        await PairingInvitation.fromQr(payload);
+        step('正在退出本机原有的单机同步空间');
+        await _leaveSoloVault();
       }
       if (reconnect && await gatewayOrigin() == link.origin) return;
       final session = await respondToInvitation(payload);
@@ -170,4 +177,32 @@ extension _AppSyncJoin on AppSyncService {
       mailbox.close();
     }
   }
+
+  /// 本机自建、没有其他成员、也从未连接过服务器的空间：退出它不会影响任何其他设备。
+  Future<bool> _isSoloVault() async =>
+      hasVault && !_requiresNewIdentity && !hasMembershipConflict && verifiedPeers.isEmpty &&
+      (await _relaySetting()).isEmpty && await pendingHostedInvite() == null;
+
+  /// 退出单机空间：清掉同步历史和空间密钥，保留设备身份与全部便签、事项、附件。
+  Future<void> _leaveSoloVault() => _run(() async {
+    _requirePrepared();
+    _requireNormalMode();
+    final local = _local!;
+    await _runtime?.stop();
+    _runtime = null;
+    await _controller?.stop();
+    await _membershipChanges?.cancel();
+    _controller = null;
+    _membershipChanges = null;
+    _baselineReady = false;
+    _listeningPort = null;
+    _paused = false;
+    // 先清数据库：若此后中断，重启会以原单机空间重新启用，不会卡在半退出状态。
+    db.leaveSoloSyncVault();
+    await _membershipStore(local).discardSolo(local.keys);
+    if (await root.exists()) await root.delete(recursive: true);
+    await root.create(recursive: true);
+    await _prepare(local.identity.name);
+    if (hasVault) throw StateError('退出原同步空间失败');
+  });
 }
