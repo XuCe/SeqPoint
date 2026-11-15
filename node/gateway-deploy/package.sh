@@ -27,8 +27,8 @@ EXPOSE 8080 8081
 ENTRYPOINT ["/seqpoint-node"]
 CMD ["-gateway"]
 DOCKER
-# 没装 Docker Buildx 时用 build_image.py 直接拼出同样内容的镜像 tar。
-if docker buildx version >/dev/null 2>&1; then builder=docker; else builder=python; fi
+# Docker 守护进程不可用（未安装、未启动或无权限）时，用 build_image.py 直接拼出同样内容的镜像 tar。
+if docker info >/dev/null 2>&1 && docker buildx version >/dev/null 2>&1; then builder=docker; else builder=python; fi
 for arch in amd64 arm64; do
   GOOS=linux GOARCH=$arch CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o "$work/seqpoint-node" .
   if [[ $builder == docker ]]; then
