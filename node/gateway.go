@@ -12,8 +12,9 @@ import (
 
 type gatewayVault struct {
 	Config
-	Paused  bool
-	Revoked map[string]bool
+	Paused   bool
+	Revoked  map[string]bool
+	Profiles map[string]gatewayProfile `json:",omitempty"`
 }
 type gatewayTicket struct {
 	Expires time.Time
@@ -29,6 +30,8 @@ type gateway struct {
 	registryFailed    bool
 	nodes             map[string]*Node
 	pairs             pairMailboxes
+	regions           ipRegions
+	seen              map[string]gatewayProfile
 	store             *Node
 	origin, directory string
 }

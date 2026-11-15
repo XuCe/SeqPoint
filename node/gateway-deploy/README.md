@@ -27,4 +27,8 @@ HTTP 会明文传输邀请、连接凭据和请求信息，适合可信内网。
 
 ## 从源码生成离线包
 
-在装有 Go 1.25+、Docker Buildx 的开发机运行 `bash node/gateway-deploy/package.sh /绝对路径/输出目录`。镜像内只包含网关二进制及数据目录，以非 root 用户运行。
+在装有 Go 1.25+ 的开发机运行 `bash node/gateway-deploy/package.sh /绝对路径/输出目录`。有 Docker Buildx 时用它构建；没有时由 `build_image.py`（需 Python 3）直接生成同样内容的镜像 tar。镜像内只包含网关二进制、数据目录和离线 IP 地区库（`/ipdb`，打包时下载 ip2region 数据），以非 root 用户运行。设置 `IPDB_DIR=/已下载目录` 可复用本地的 `ip2region_v4.xdb`、`ip2region_v6.xdb`。
+
+## 设备名称与出口 IP
+
+客户端在「设备与同步」里显示各设备的名称、出口 IP 和地区。设备每次同步时把自己的名称报给网关，网关记下请求的来源 IP，并用镜像内的离线库查询地区，不调用任何第三方接口。地区库缺失时只显示 IP；可用 `GATEWAY_IPDB_DIR` 指定库所在目录。经 DSM 反向代理访问时，网关采信内网代理传来的 `X-Forwarded-For`；局域网内直连的设备显示为「局域网」。

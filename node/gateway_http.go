@@ -43,6 +43,20 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"device":%q}`, c.Device)
 		return
 	}
+	if r.Method == "GET" && r.URL.Path == "/v1/whoami" {
+		addr := clientAddr(r)
+		w.Header().Set("Content-Type", "application/json")
+		ip := ""
+		if addr.IsValid() {
+			ip = addr.String()
+		}
+		json.NewEncoder(w).Encode(map[string]string{"ip": ip, "region": g.regions.lookup(addr)})
+		return
+	}
+	if r.URL.Path == gatewayDevicesPath {
+		g.serveDevices(w, r)
+		return
+	}
 	if !strings.HasPrefix(r.URL.Path, "/seqpoint/relay/v2/") {
 		http.NotFound(w, r)
 		return

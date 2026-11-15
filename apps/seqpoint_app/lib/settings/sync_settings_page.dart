@@ -9,6 +9,7 @@ import '../app/app_scope.dart';
 import '../sync/add_device_page.dart';
 import '../sync/app_sync_service.dart';
 import '../sync/join_qr_scan_page.dart';
+import '../sync/sync_identity_store.dart';
 import '../sync/sync_membership_controller.dart';
 import '../sync/sync_pairing_page.dart';
 import '../theme/seq_tokens.dart';
@@ -64,7 +65,9 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
         origin = await service.gatewayOrigin();
         pending = await service.hasPendingEnrollment();
       } catch (_) {}
-      if (mounted) setState(() { _origin = origin; _pending = pending; });
+      if (!mounted) return;
+      setState(() { _origin = origin; _pending = pending; });
+      if (origin != null && service.canSync) unawaited(service.refreshGatewayDevices());
     }());
   }
 
@@ -219,7 +222,10 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     if (service != null) {
       return ListenableBuilder(listenable: service, builder: (context, _) {
         _reload(service);
-        return _settings(service, restoring: scope?.restoring ?? false);
+        // 同步通常很快：只有持续片刻才置灰按钮、显示进度，避免整页闪一下。
+        // 处理中的重复点击由 [_run] 拦下。
+        return DelayedBusy(active: _working || service.busy, builder: (context, busy) =>
+            _settings(service, restoring: scope?.restoring ?? false, busy: busy));
       });
     }
     return const SettingsScaffold(
@@ -231,26 +237,29 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
     );
   }
 
-  Widget _settings(AppSyncService service, {required bool restoring}) {
-    final disabled = restoring || _working || service.busy;
+  Widget _settings(AppSyncService service, {required bool restoring, required bool busy}) {
+    final disabled = restoring || busy;
     final recovering = service.requiresNewIdentity;
     final conflicted = service.hasMembershipConflict;
     final connected = _origin != null && service.canSync;
     final peers = service.verifiedPeers, version = service.membershipVersion;
     Widget peerRow(MemberKeys peer) => _PeerRow(
           deviceId: peer.deviceId,
+          info: service.gatewayDevice(peer.deviceId),
           onRevoke: disabled || recovering || conflicted || version == null
               ? null : () => _confirmRevoke(service, peer, version),
         );
     final message = _error ?? service.error;
+    final self = service.identity;
     return SettingsScaffold(title: '设备与同步',
+      // 进度条自己做延迟，这里传实时状态。
+      busy: (_working || service.busy) && !_confirming,
       footnote: '笔记在本机加密后经同步服务器交换，服务器看不到内容。'
         '第一台设备粘贴服务器邀请；以后的设备在已连接的设备上点「添加设备」，扫码或粘贴链接即可。',
       children: [
       if (message != null)
         ListTile(leading: const Icon(Icons.error_outline), title: Text(message)),
       if (restoring) const ListTile(title: Text('正在恢复备份，同步操作暂不可用')),
-      if (_working && !_confirming) const LinearProgressIndicator(),
       if (service.prepared && !recovering &&
           (service.error != null || service.membershipState == SyncMembershipControllerState.blocked))
         ListTile(title: const Text('重新核验已保存的安全记录'),
@@ -265,7 +274,9 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
                   : '${_host(_origin!)} · ${peers.length + 1} 台设备自动同步')
               : '下方粘贴链接后开始同步',
           online: connected,
-          thisDevice: service.identity?.name,
+          thisDevice: self?.name,
+          thisDeviceDetail: self == null ? null : _networkLabel(service.gatewayDevice(self.deviceId)),
+          onRename: self == null || disabled || recovering ? null : () => _rename(service, self.name),
           peers: [for (final peer in peers) peerRow(peer)],
           onAdd: connected && !disabled ? () => Navigator.of(context).push<void>(
               MaterialPageRoute(builder: (_) => AddDevicePage(service: service))) : null,
@@ -293,7 +304,25 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
 
   static String _host(String origin) => Uri.tryParse(origin)?.authority ?? origin;
 
+  Future<void> _rename(AppSyncService service, String current) => _run(service, () async {
+    _confirming = true;
+    String? name;
+    try {
+      name = await showDialog<String>(context: context,
+          builder: (_) => _RenameDialog(initial: current));
+    } finally {
+      _confirming = false;
+    }
+    if (name == null || name == current || !mounted) return;
+    await service.renameDevice(name);
+    if (mounted) {
+      ScaffoldMessenger.of(context)..clearSnackBars()
+        ..showSnackBar(const SnackBar(content: Text('本机名称已更新')));
+    }
+  }, message: (error) => error is FormatException ? error.message : '名称保存失败，请重试');
+
   Widget _syncCard(AppSyncService service, bool disabled) {
+    final busy = disabled && !_restoring;
     final round = service.lastRound;
     return SettingsCard(
       icon: Icons.sync_rounded,
@@ -318,7 +347,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
           child: Align(alignment: Alignment.centerLeft, child: FilledButton.icon(
             icon: const Icon(Icons.sync_rounded, size: 18),
-            label: Text(_working ? '同步中…' : '立即同步'),
+            label: Text(busy ? '同步中…' : '立即同步'),
             onPressed: disabled ? null : () => _run(service, () async { await service.syncRelay(); },
                 message: (_) => service.relayMessage ?? '同步未完成，请检查网络后重试'),
           )),
@@ -374,7 +403,7 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
             Wrap(spacing: 8, runSpacing: 8, children: [
               FilledButton(
                 onPressed: disabled ? null : () => _connect(service),
-                child: Text(_working ? '连接中…' : '连接'),
+                child: Text(disabled && !_restoring ? '连接中…' : '连接'),
               ),
               OutlinedButton.icon(
                 icon: const Icon(Icons.content_paste_rounded, size: 18),
@@ -458,6 +487,13 @@ class _SyncSettingsPageState extends State<SyncSettingsPage> {
   }
 }
 
+/// 设备下方的一行网络信息：出口 IP 与地区，由同步网关记录。
+String? _networkLabel(GatewayDeviceInfo? info) {
+  if (info == null) return null;
+  final parts = [?info.ip, ?info.region];
+  return parts.isEmpty ? null : parts.join(' · ');
+}
+
 /// 设备卡：本机与已配对设备排成一列，像时间线上的点；底部是添加设备。
 class _DeviceCard extends StatelessWidget {
   const _DeviceCard({
@@ -466,6 +502,8 @@ class _DeviceCard extends StatelessWidget {
     required this.peers,
     this.online = false,
     this.thisDevice,
+    this.thisDeviceDetail,
+    this.onRename,
     this.onAdd,
   });
 
@@ -473,6 +511,10 @@ class _DeviceCard extends StatelessWidget {
   final String detail;
   final bool online;
   final String? thisDevice;
+
+  /// 本机名称下方的出口 IP 与地区。
+  final String? thisDeviceDetail;
+  final VoidCallback? onRename;
   final List<Widget> peers;
   final VoidCallback? onAdd;
 
@@ -500,10 +542,23 @@ class _DeviceCard extends StatelessWidget {
                 child: Text(detail, style: const TextStyle(fontSize: 13, color: SeqTokens.inkMuted)),
               ),
               const SizedBox(height: 14),
-              _DeviceLine(icon: Icons.laptop_mac_outlined, title: thisDevice ?? '这台设备',
-                  caption: '本机', first: true, last: peers.isEmpty),
+              _DeviceLine(first: true, last: peers.isEmpty, child: _DeviceInfo(
+                icon: Icons.laptop_mac_outlined,
+                title: thisDevice ?? '这台设备',
+                detail: thisDeviceDetail,
+                badge: '本机',
+                trailing: IconButton(
+                  key: const ValueKey('sync-rename'),
+                  tooltip: '修改本机名称',
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 18,
+                  color: SeqTokens.inkSoft,
+                  onPressed: onRename,
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+              )),
               for (var i = 0; i < peers.length; i++)
-                _DeviceLine.wrap(peers[i], last: i == peers.length - 1),
+                _DeviceLine(last: i == peers.length - 1, child: peers[i]),
               if (onAdd != null) ...[
                 const SizedBox(height: 12),
                 Row(children: [
@@ -527,17 +582,10 @@ class _DeviceCard extends StatelessWidget {
 
 /// 设备列表里的一行：左侧圆点与竖线串起各台设备。
 class _DeviceLine extends StatelessWidget {
-  const _DeviceLine({required this.icon, required this.title, this.caption,
-    this.first = false, this.last = false, this.child});
+  const _DeviceLine({required this.child, this.first = false, this.last = false});
 
-  factory _DeviceLine.wrap(Widget child, {required bool last}) =>
-      _DeviceLine(icon: Icons.devices_other_outlined, title: '', last: last, child: child);
-
-  final IconData icon;
-  final String title;
-  final String? caption;
   final bool first, last;
-  final Widget? child;
+  final Widget child;
 
   @override
   Widget build(BuildContext context) => IntrinsicHeight(
@@ -558,47 +606,121 @@ class _DeviceLine extends StatelessWidget {
             ]),
           ),
           const SizedBox(width: 10),
-          Expanded(child: child ?? Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Row(children: [
-              Icon(icon, size: 18, color: SeqTokens.inkSoft),
-              const SizedBox(width: 8),
-              Expanded(child: Text(title, style: const TextStyle(fontSize: 14.5))),
-              if (caption != null) Text(caption!, style: const TextStyle(fontSize: 12.5,
-                  color: SeqTokens.inkMuted)),
-            ]),
-          )),
+          Expanded(child: child),
         ]),
       );
 }
 
-/// 已配对设备：短编号 + 完整设备号（可复制核对）+ 撤销。
+/// 一台设备：名称（可带「本机」标记），下方是出口 IP 与地区。
+class _DeviceInfo extends StatelessWidget {
+  const _DeviceInfo({required this.icon, required this.title, this.detail, this.badge,
+    this.trailing});
+
+  final IconData icon;
+  final String title;
+  final String? detail, badge;
+  final Widget? trailing;
+
+  @override
+  Widget build(BuildContext context) => ConstrainedBox(
+        constraints: const BoxConstraints(minHeight: 36),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Row(children: [
+            Icon(icon, size: 18, color: SeqTokens.inkSoft),
+            const SizedBox(width: 8),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min, children: [
+              Row(children: [
+                Flexible(child: Text(title, maxLines: 1, overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 14.5))),
+                if (badge != null) ...[
+                  const SizedBox(width: 8),
+                  Text(badge!, style: const TextStyle(fontSize: 12.5, color: SeqTokens.inkMuted)),
+                ],
+              ]),
+              if (detail != null) Text(detail!, maxLines: 1, overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: SeqTokens.inkMuted)),
+            ])),
+            if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+          ]),
+        ),
+      );
+}
+
+/// 已配对设备：名称 + 出口 IP 与地区 + 撤销。名称来自同步网关，
+/// 对方尚未上报时用设备号前 8 位代替。
 class _PeerRow extends StatelessWidget {
-  const _PeerRow({required this.deviceId, required this.onRevoke});
+  const _PeerRow({required this.deviceId, required this.onRevoke, this.info});
 
   final String deviceId;
+  final GatewayDeviceInfo? info;
   final VoidCallback? onRevoke;
 
   @override
-  Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Row(children: [
-          const Icon(Icons.devices_other_outlined, size: 18, color: SeqTokens.inkSoft),
-          const SizedBox(width: 8),
-          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('设备 ${deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId}',
-                style: const TextStyle(fontSize: 14.5)),
-            SelectableText(deviceId, maxLines: 1,
-                style: const TextStyle(fontSize: 11.5, color: SeqTokens.inkFaint)),
-          ])),
-          const SizedBox(width: 8),
-          OutlinedButton(
-            onPressed: onRevoke,
-            style: OutlinedButton.styleFrom(minimumSize: const Size(0, 34),
-                foregroundColor: SeqTokens.dangerInk,
-                side: const BorderSide(color: SeqTokens.line)),
-            child: const Text('撤销'),
+  Widget build(BuildContext context) => _DeviceInfo(
+        icon: Icons.devices_other_outlined,
+        title: info?.name ?? '设备 ${deviceId.length > 8 ? deviceId.substring(0, 8) : deviceId}',
+        detail: _networkLabel(info),
+        trailing: OutlinedButton(
+          onPressed: onRevoke,
+          style: OutlinedButton.styleFrom(minimumSize: const Size(0, 34),
+              foregroundColor: SeqTokens.dangerInk,
+              side: const BorderSide(color: SeqTokens.line)),
+          child: const Text('撤销'),
+        ),
+      );
+}
+
+/// 修改本机名称。名称会随同步报给网关，其他设备据此显示。
+class _RenameDialog extends StatefulWidget {
+  const _RenameDialog({required this.initial});
+  final String initial;
+
+  @override
+  State<_RenameDialog> createState() => _RenameDialogState();
+}
+
+class _RenameDialogState extends State<_RenameDialog> {
+  late final _text = TextEditingController(text: widget.initial)
+    ..selection = TextSelection(baseOffset: 0, extentOffset: widget.initial.length);
+  String? _error;
+
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final name = SyncIdentityStore.normalizeName(_text.text);
+    if (name == null) {
+      setState(() => _error = '请输入 1–64 个字符的名称');
+      return;
+    }
+    Navigator.pop(context, name);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('本机名称'),
+        content: TextField(
+          key: const ValueKey('sync-rename-field'),
+          controller: _text,
+          autofocus: true,
+          maxLength: SyncIdentityStore.maxNameChars,
+          textInputAction: TextInputAction.done,
+          onChanged: (_) { if (_error != null) setState(() => _error = null); },
+          onSubmitted: (_) => _submit(),
+          decoration: InputDecoration(
+            hintText: '例如：家里的电脑、我的手机',
+            helperText: '其他设备会看到这个名称',
+            errorText: _error,
           ),
-        ]),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('取消')),
+          FilledButton(onPressed: _submit, child: const Text('保存')),
+        ],
       );
 }

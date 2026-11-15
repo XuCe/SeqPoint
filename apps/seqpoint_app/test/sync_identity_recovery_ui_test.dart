@@ -128,6 +128,9 @@ void main() {
     await tester.enterText(find.byKey(const ValueKey('sync-device-name')), '恢复设备');
     await tester.tap(find.text('生成新身份')); await tester.pump();
     expect(sync.beginnings, 1);
+    await tester.tap(find.text('生成新身份'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(sync.beginnings, 1);
     expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, '生成新身份')).onPressed, isNull);
     sync.beginGate!.complete(); await tester.pumpAndSettle();
     expect(find.text('new-candidate-id'), findsOneWidget);

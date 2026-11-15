@@ -243,6 +243,25 @@ class RelayTransport implements VaultTransport {
     return bytes;
   }
 
+  /// 同一空间内各设备在同步网关上的名称、出口 IP 与地区。
+  /// 传入 [name] 时先向网关登记本机名称和当前出口 IP。
+  Future<Result<List<GatewayDeviceInfo>>> devices({String? name}) async {
+    final result = await _request(name == null ? 'GET' : 'POST', 'devices', '',
+        name == null ? const [] : utf8.encode(jsonEncode({'name': name})));
+    if (result is Err<List<int>>) {
+      return Err(result.code, message: result.message);
+    }
+    try {
+      final json = jsonDecode(utf8.decode((result as Ok<List<int>>).value)) as Map;
+      return Ok([
+        for (final entry in json['devices'] as List)
+          GatewayDeviceInfo.fromJson((entry as Map).cast<String, Object?>()),
+      ]);
+    } catch (error) {
+      return Err('relay_invalid_devices', cause: error);
+    }
+  }
+
   /// 云端当前暂存量，设置页展示用。
   Future<Result<int>> usedBytes() async {
     final result = await _request('GET', 'usage', '', const []);
@@ -260,6 +279,31 @@ class RelayTransport implements VaultTransport {
       return Err('relay_invalid_usage', cause: error);
     }
   }
+}
+
+/// 网关记下的设备展示信息。都是设备报给网关的元数据，不含笔记内容。
+class GatewayDeviceInfo {
+  const GatewayDeviceInfo({required this.deviceId, this.name, this.ip, this.region, this.seen});
+
+  factory GatewayDeviceInfo.fromJson(Map<String, Object?> json) {
+    final device = json['device'];
+    if (device is! String || !RegExp(r'^[A-Za-z0-9_-]{43}$').hasMatch(device)) {
+      throw const FormatException('Invalid gateway device');
+    }
+    String? text(String key) {
+      final value = json[key];
+      return value is String && value.trim().isNotEmpty ? value : null;
+    }
+    final seen = json['seen'];
+    return GatewayDeviceInfo(deviceId: device, name: text('name'), ip: text('ip'),
+        region: text('region'),
+        seen: seen is int && seen > 0
+            ? DateTime.fromMillisecondsSinceEpoch(seen * 1000, isUtc: true) : null);
+  }
+
+  final String deviceId;
+  final String? name, ip, region;
+  final DateTime? seen;
 }
 
 class RelayPage {

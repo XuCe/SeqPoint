@@ -19,6 +19,7 @@ part 'app_sync_service_recovery.dart';
 part 'app_sync_service_revocation.dart';
 part 'app_sync_service_automatic.dart';
 part 'app_sync_service_join.dart';
+part 'app_sync_service_devices.dart';
 
 /// Main-engine owner; construction does not touch storage or the network.
 ///
@@ -155,6 +156,10 @@ class AppSyncService extends ChangeNotifier {
   int? _listeningPort;
   String? _error;
   SyncOutcome? _lastRound;
+  Map<String, GatewayDeviceInfo> _gatewayDevices = const {};
+  String? _gatewayDevicesVault;
+  Future<void>? _presence;
+  DateTime? _presenceAt;
   final Map<String, String> _relayMessages = {};
   AutoSyncScheduler? _automatic;
   bool _automaticStarted=false,_automaticEnabled=true,_userPaused=false,_suspended=false;
@@ -165,6 +170,7 @@ class AppSyncService extends ChangeNotifier {
   int get transferredBytes=>_runtime?.mediaTransferredBytes??0;
   Future<void> startAutomatic()=>_startAutomatic();
   void _notifyAutomatic()=>notifyListeners();
+  void _notifyDevices()=>notifyListeners();
   void suspendAutomatic() {
     _suspended=true;_automatic?.suspend();
   }
@@ -190,6 +196,15 @@ class AppSyncService extends ChangeNotifier {
     _userPaused=false;await _refreshAutomaticTarget();
   }
   String? get relayMessage => _relayMessages[relayVaultId];
+
+  /// 同步网关记录的某台设备名称、出口 IP 与地区；尚未取到或网关不支持时为 null。
+  GatewayDeviceInfo? gatewayDevice(String deviceId) => _gatewayDevice(deviceId);
+
+  /// 向网关登记本机名称和出口 IP，并取回同一空间内各设备的信息。不抛出异常。
+  Future<void> refreshGatewayDevices() => _refreshGatewayDevices();
+
+  /// 修改本机名称：保存到本机安全身份，再报给同步网关。
+  Future<void> renameDevice(String name) => _renameDevice(name);
   bool _requiresNewIdentity = false;
   LocalDeviceIdentity? _recoveryIdentity;
   String? _recoveryPreviousId;
@@ -495,6 +510,9 @@ class AppSyncService extends ChangeNotifier {
           : '同步未完成：$error';
       rethrow;
     }
+  }).then((value) {
+    if (_presenceStale) unawaited(refreshGatewayDevices());
+    return value;
   });
 
   /// 局域网直连，仅用于测试与诊断；用户界面只走同步服务器。

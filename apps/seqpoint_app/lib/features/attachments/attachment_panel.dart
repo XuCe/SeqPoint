@@ -169,6 +169,7 @@ class _AttachmentPanelState extends State<AttachmentPanel> {
       children: [
         Wrap(
           spacing: 12,
+          runSpacing: 8,
           crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             OutlinedButton.icon(

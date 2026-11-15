@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../theme/seq_tokens.dart';
@@ -9,10 +11,15 @@ class SettingsScaffold extends StatelessWidget {
     required this.title,
     required this.children,
     this.footnote,
+    this.busy = false,
   });
 
   final String title;
   final List<Widget> children;
+
+  /// 页面正在处理：标题栏下方的进度条。高度始终占住，短于 [DelayedBusy.delay]
+  /// 的操作不显示，避免一闪而过把页面顶上去又落回来。
+  final bool busy;
 
   /// 页面底部的说明文字，用来讲清楚"数据去哪了"这类事。
   final String? footnote;
@@ -28,6 +35,10 @@ class SettingsScaffold extends StatelessWidget {
           fontSize: 20,
           color: SeqTokens.ink,
         )),
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(BusyBar.height),
+          child: BusyBar(active: busy),
+        ),
       ),
       body: ListView(
         padding: const EdgeInsets.only(bottom: 32),
@@ -176,5 +187,81 @@ class SettingsLabel extends StatelessWidget {
         padding: const EdgeInsets.fromLTRB(26, 22, 24, 0),
         child: Text(text, style: const TextStyle(fontSize: 12.5,
             fontWeight: FontWeight.w700, letterSpacing: 0.6, color: SeqTokens.inkMuted)),
+      );
+}
+
+/// 延迟生效的忙碌状态：[active] 持续超过 [delay] 才把 `shown` 设为 true，
+/// 结束时立即恢复。快速完成的操作不会让界面闪一下。
+class DelayedBusy extends StatefulWidget {
+  const DelayedBusy({super.key, required this.active, required this.builder,
+      this.delay = const Duration(milliseconds: 350)});
+
+  final bool active;
+  final Duration delay;
+  final Widget Function(BuildContext context, bool shown) builder;
+
+  @override
+  State<DelayedBusy> createState() => _DelayedBusyState();
+}
+
+class _DelayedBusyState extends State<DelayedBusy> {
+  Timer? _timer;
+  bool _shown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _track();
+  }
+
+  @override
+  void didUpdateWidget(DelayedBusy oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _track();
+  }
+
+  void _track() {
+    if (!widget.active) {
+      _timer?.cancel();
+      _timer = null;
+      _shown = false;
+    } else if (!_shown && _timer == null) {
+      _timer = Timer(widget.delay, () {
+        _timer = null;
+        if (mounted && widget.active) setState(() => _shown = true);
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.builder(context, _shown);
+}
+
+/// 固定高度的进度条：不忙时透明占位，忙碌超过片刻才淡入。
+class BusyBar extends StatelessWidget {
+  const BusyBar({super.key, required this.active});
+
+  static const height = 3.0;
+  final bool active;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+        height: height,
+        child: DelayedBusy(
+          active: active,
+          builder: (context, shown) => AnimatedOpacity(
+            opacity: shown ? 1 : 0,
+            duration: const Duration(milliseconds: 180),
+            child: shown || active
+                ? const LinearProgressIndicator(minHeight: height)
+                : const SizedBox.shrink(),
+          ),
+        ),
       );
 }

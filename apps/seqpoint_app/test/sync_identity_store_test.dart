@@ -4,6 +4,32 @@ import 'package:seqpoint_app/sync/sync_identity_store.dart';
 import 'package:seqpoint_platform/seqpoint_platform.dart';
 
 void main() {
+  test('改名只换显示名称，密钥、设备号和加入时间不变；非法名称拒绝', () async {
+    final secrets = _Secrets();
+    final store = SyncIdentityStore(secrets);
+    final first = await store.loadOrCreate('电脑');
+    final renamed = await store.rename(first.keys.deviceId, '  书房电脑  ');
+    expect(renamed.identity.name, '书房电脑');
+    expect(renamed.identity.deviceId, first.identity.deviceId);
+    expect(renamed.identity.addedAt, first.identity.addedAt);
+    expect(await renamed.keys.signer.sign([1]), await first.keys.signer.sign([1]));
+    expect((await SyncIdentityStore(secrets).loadOrCreate('其他')).identity.name, '书房电脑');
+    expect((await store.loadOrCreate('其他')).identity.name, '书房电脑');
+    for (final bad in ['', '   ', 'a\nb', '长' * 65]) {
+      await expectLater(store.rename(first.keys.deviceId, bad), throwsFormatException);
+    }
+    await expectLater(store.rename('x' * 43, '名称'), throwsStateError);
+    expect((await SyncIdentityStore(secrets).loadOrCreate('其他')).identity.name, '书房电脑');
+  });
+  test('有恢复身份时改名只影响指定身份', () async {
+    final secrets = _Secrets();
+    final store = SyncIdentityStore(secrets);
+    final old = await store.loadOrCreate('旧电脑');
+    final fresh = await store.createRecoveryIdentity('新电脑');
+    await store.rename(fresh.keys.deviceId, '新名字');
+    expect((await store.loadForDevice(old.keys.deviceId)).identity.name, '旧电脑');
+    expect((await store.loadForDevice(fresh.keys.deviceId)).identity.name, '新名字');
+  });
   test('单一安全记录保存双私钥，重开身份与时间不变', () async {
     final secrets = _Secrets();
     final first = await SyncIdentityStore(secrets).loadOrCreate('电脑');

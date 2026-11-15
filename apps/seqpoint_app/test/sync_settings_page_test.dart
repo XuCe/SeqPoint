@@ -64,9 +64,35 @@ class _Sync extends AppSyncService {
     if (linkError case final error?) throw error;
     paired = true; origin = 'http://nas.local:8385'; notifyListeners();
   }
+  DeviceIdentity? self;
+  final network = <String, GatewayDeviceInfo>{};
+  final renames = <String>[];
+  int refreshes = 0;
+  Completer<void>? syncGate;
+  bool syncing = false;
+  @override
+  bool get busy => syncing;
+  @override
+  DeviceIdentity? get identity => self;
+  @override
+  GatewayDeviceInfo? gatewayDevice(String deviceId) => network[deviceId];
+  @override
+  Future<void> refreshGatewayDevices() async => refreshes++;
+  @override
+  Future<void> renameDevice(String name) async {
+    renames.add(name);
+    self = DeviceIdentity(deviceId: self!.deviceId, name: name, signingPublicKey: '',
+        exchangePublicKey: '', isSelf: true, addedAt: self!.addedAt);
+    notifyListeners();
+  }
   @override
   Future<SyncOutcome> syncRelay({bool automatic = false}) async {
     syncs++;
+    if (syncGate case final gate?) {
+      syncing = true; notifyListeners();
+      await gate.future;
+      syncing = false; notifyListeners();
+    }
     return const SyncOutcome(pulled: 2, pushed: 3, reclaimed: 0, peers: []);
   }
   @override
@@ -129,6 +155,9 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, '连接'));
     await tester.pump();
     expect(find.text('正在连接同步服务器'), findsOneWidget);
+    // 等待期间再次点击被拦下；持续片刻后按钮才置灰，避免快速操作时页面闪烁。
+    await tester.tap(find.widgetWithText(FilledButton, '连接'));
+    await tester.pump(const Duration(milliseconds: 400));
     expect(tester.widget<FilledButton>(find.widgetWithText(FilledButton, '连接中…')).onPressed, isNull);
     sync.gate!.complete();
     await tester.pumpAndSettle();
@@ -247,5 +276,68 @@ void main() {
     expect(find.text('此版本尚未接入设备同步服务'), findsOneWidget);
     expect(find.byType(SwitchListTile), findsNothing);
     expect(find.text('已同步'), findsNothing);
+  });
+
+  testWidgets('设备下方显示出口 IP 与地区而不是设备号，可修改本机名称', (tester) async {
+    final self = 's' * 43, peer = 'a' * 43;
+    final sync = _Sync(SeqDatabase.inMemory())
+      ..ready = true..paired = true..origin = 'http://nas.local:8385'
+      ..self = DeviceIdentity(deviceId: self, name: '家-PC', signingPublicKey: '',
+          exchangePublicKey: '', isSelf: true, addedAt: DateTime.utc(2026))
+      ..network[self] = const GatewayDeviceInfo(deviceId: 's', ip: '203.0.113.7', region: '浙江省杭州市 · 电信')
+      ..network[peer] = const GatewayDeviceInfo(deviceId: 'a', name: '我的手机', ip: '198.51.100.9');
+    addTearDown(() { sync.db.close(); sync.dispose(); });
+    await _mount(tester, sync);
+    expect(sync.refreshes, 1);
+    expect(find.text('家-PC'), findsOneWidget);
+    expect(find.text('203.0.113.7 · 浙江省杭州市 · 电信'), findsOneWidget);
+    expect(find.text('我的手机'), findsOneWidget);
+    expect(find.text('198.51.100.9'), findsOneWidget);
+    expect(find.text(peer), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('sync-rename')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const ValueKey('sync-rename-field')), '   ');
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(find.text('请输入 1–64 个字符的名称'), findsOneWidget);
+    await tester.enterText(find.byKey(const ValueKey('sync-rename-field')), ' 书房电脑 ');
+    await tester.tap(find.widgetWithText(FilledButton, '保存'));
+    await tester.pumpAndSettle();
+    expect(sync.renames, ['书房电脑']);
+    expect(find.text('书房电脑'), findsOneWidget);
+    expect(find.text('本机名称已更新'), findsOneWidget);
+  });
+
+  testWidgets('快速完成的同步不闪进度条也不置灰，慢同步才显示且不挤动页面', (tester) async {
+    final sync = _Sync(SeqDatabase.inMemory())
+      ..ready = true..paired = true..origin = 'http://nas.local:8385'
+      ..syncGate = Completer<void>();
+    addTearDown(() { sync.db.close(); sync.dispose(); });
+    await _mount(tester, sync);
+    final top = tester.getTopLeft(find.text('已连接同步服务器')).dy;
+    Finder bar() => find.byType(LinearProgressIndicator);
+    SwitchListTile toggle() => tester.widget<SwitchListTile>(find.widgetWithText(SwitchListTile, '自动同步'));
+
+    await tester.tap(find.widgetWithText(FilledButton, '立即同步'));
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(tester.widget<AnimatedOpacity>(find.ancestor(of: bar(), matching: find.byType(AnimatedOpacity))).opacity, 0);
+    expect(toggle().onChanged, isNotNull);
+    expect(find.text('立即同步'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('已连接同步服务器')).dy, top);
+
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(toggle().onChanged, isNull);
+    expect(find.text('同步中…'), findsOneWidget);
+    expect(tester.widget<AnimatedOpacity>(find.ancestor(of: bar(), matching: find.byType(AnimatedOpacity))).opacity, 1);
+    expect(tester.getTopLeft(find.text('已连接同步服务器')).dy, top);
+
+    sync.syncGate!.complete();
+    await tester.pumpAndSettle();
+    expect(bar(), findsNothing);
+    expect(toggle().onChanged, isNotNull);
+    expect(tester.getTopLeft(find.text('已连接同步服务器')).dy, top);
+    expect(sync.syncs, 1);
   });
 }

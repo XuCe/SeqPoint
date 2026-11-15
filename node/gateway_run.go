@@ -34,6 +34,11 @@ func runGateway(directory, addr, cert, key string) error {
 		return err
 	}
 	defer g.close()
+	ipdb, ok := os.LookupEnv("GATEWAY_IPDB_DIR")
+	if !ok {
+		ipdb = "/ipdb"
+	}
+	g.regions = loadIPRegions(ipdb)
 	adminAddr := os.Getenv("GATEWAY_ADMIN_LISTEN")
 	if adminAddr == "" {
 		adminAddr = "127.0.0.1:8081"

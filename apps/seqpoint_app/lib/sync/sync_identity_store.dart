@@ -48,6 +48,38 @@ class SyncIdentityStore {
     } catch (_) { throw StateError('指定设备身份不可用，同步保持关闭'); }
   }
 
+  static const maxNameChars = 64;
+
+  /// 本机名称：去掉首尾空白，非空、不换行、不超过 [maxNameChars] 个字符。
+  static String? normalizeName(String value) {
+    final name = value.trim();
+    if (name.isEmpty || name.runes.length > maxNameChars ||
+        name.contains(RegExp(r'[\u0000-\u001f\u007f]'))) {
+      return null;
+    }
+    return name;
+  }
+
+  /// 修改某个已保存身份的显示名称；密钥与加入时间不变。
+  Future<LocalDeviceIdentity> rename(String deviceId, String value) async {
+    final name = normalizeName(value);
+    if (name == null) throw const FormatException('设备名称需为 1–64 个字符，且不能换行');
+    final previous = await _secrets.read(storageKey);
+    if (previous == null) throw StateError('缺少设备安全身份');
+    final known = await _identities(previous);
+    final index = known.indexWhere((entry) => entry.keys.deviceId == deviceId);
+    if (index < 0) throw StateError('指定设备身份不可用');
+    final json = jsonDecode(previous) as Map<String, dynamic>;
+    final records = json['v'] == 1 ? [json] : (json['identities'] as List).cast<Map<String, dynamic>>();
+    records[index]['name'] = name;
+    final record = jsonEncode(json);
+    final result = (await _identities(record))[index];
+    await _secrets.write(storageKey, record);
+    if (await _secrets.read(storageKey) != record) throw StateError('设备名称保存失败');
+    if (index == known.length - 1) _loading = Future.value(result);
+    return result;
+  }
+
   Future<LocalDeviceIdentity> createRecoveryIdentity(String name) async {
     try {
       final previous = await _secrets.read(storageKey);

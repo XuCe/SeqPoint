@@ -96,11 +96,11 @@ class _AiSettingsPageState extends State<AiSettingsPage> {
     final editable = !_loading && !_loadError && !_saving;
     return SettingsScaffold(
       title: 'AI 整理',
+      busy: _loading || _saving,
       footnote: '密钥只保存在这台设备的系统安全存储里，'
           '不会写进数据库、日志或导出文件。请求由本机直接发往模型服务，'
           '序点的服务器不经手。',
       children: [
-        if (_loading || _saving) const LinearProgressIndicator(),
         if (_loadError) ListTile(title: const Text('无法读取AI设置'),
             trailing: TextButton(onPressed: _load, child: const Text('重试'))),
         const SettingsLabel('整理方式'),

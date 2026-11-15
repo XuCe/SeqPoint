@@ -175,11 +175,11 @@ class _BackupSettingsPageState extends State<BackupSettingsPage> {
     final canRestore = enabled && scope.restoreSnapshot != null;
     return SettingsScaffold(
       title: '备份与恢复',
+      busy: _busy,
       footnote: 'JSON / Markdown 为未加密的可读导出，含未删除便签（含已揭走）、'
           '事项及关联标签，不含密钥，不能用于快照恢复。'
           '本机快照不包含系统安全存储中的可用凭据及外部附件。',
       children: [
-        if (_busy) const LinearProgressIndicator(),
         SettingsCard(
           icon: Icons.history_rounded,
           title: '未加密本机快照',

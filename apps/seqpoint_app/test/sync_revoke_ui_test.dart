@@ -110,7 +110,7 @@ void main() {
     final sync = _Sync();
     addTearDown(() { sync.db.close(); sync.dispose(); });
     await _mount(tester, sync, restoring: true);
-    expect(find.text(sync.target.deviceId), findsOneWidget);
+    expect(find.text('设备 ${sync.target.deviceId.substring(0, 8)}'), findsOneWidget);
     expect(tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '撤销')).onPressed, isNull);
     expect(sync.calls, 0);
   });
@@ -134,6 +134,8 @@ void main() {
       sync.externalBusy = mode == 'busy';
       if (mode == 'no-version') sync.version = null;
       await _mount(tester, sync);
+      // 服务忙时按钮延迟片刻才置灰，避免快速同步时整页闪烁；期间的点击由页面拦下。
+      if (mode == 'busy') await tester.pump(const Duration(milliseconds: 400));
       expect(tester.widget<OutlinedButton>(find.widgetWithText(OutlinedButton, '撤销')).onPressed, isNull);
       expect(sync.calls, 0);
     }
@@ -173,13 +175,14 @@ void main() {
     await _showMessage(tester, '成员状态已变化，请重新核对后再撤销');
     expect(find.text('成员状态已变化，请重新核对后再撤销'), findsOneWidget);
   });
-  testWidgets('设备撤销完整展示ID，点击后取消不提交', (tester) async {
+  testWidgets('设备列表不显示设备号，撤销确认框完整展示ID，取消不提交', (tester) async {
     final sync = _Sync();
     addTearDown(() { sync.db.close(); sync.dispose(); });
     await _mount(tester, sync);
-    expect(find.text(sync.target.deviceId), findsOneWidget);
+    expect(find.text(sync.target.deviceId), findsNothing);
     await tester.tap(find.text('撤销')); await tester.pumpAndSettle();
     expect(find.text('撤销此设备？'), findsOneWidget);
+    expect(find.text(sync.target.deviceId), findsOneWidget);
     expect(find.textContaining('不会远程删除'), findsOneWidget);
     await tester.tap(find.text('取消')); await tester.pumpAndSettle();
     expect(sync.calls, 0);

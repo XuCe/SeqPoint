@@ -202,6 +202,7 @@ class _MeetingPanelState extends State<MeetingPanel> {
         Wrap(
           spacing: 12,
           runSpacing: 8,
+          crossAxisAlignment: WrapCrossAlignment.center,
           children: [
             OutlinedButton.icon(
               onPressed: _busy || !widget.enabled || _service == null
@@ -219,7 +220,15 @@ class _MeetingPanelState extends State<MeetingPanel> {
             ),
           ],
         ),
-        const Text('录音仅本机保存，点开可播放或另存；转写文字需另行导入。移除后保留原文件供本机恢复。'),
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            AttachmentSyncPolicy(widget.database).enabled
+                ? '录音原文件可同步，点开可播放或另存；转写文字需另行导入。'
+                : '录音仅本机保存，点开可播放或另存；转写文字需另行导入。移除后保留原文件供本机恢复。',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(height: 1.5),
+          ),
+        ),
         if (_error != null)
           Row(
             children: [

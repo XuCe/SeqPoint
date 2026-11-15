@@ -175,11 +175,17 @@ class _NoteDetailPageState extends State<NoteDetailPage> {
         itemCount: rowCount + (database == null ? 0 : 1),
         itemBuilder: (context, index) {
           if (index == rowCount) {
-            return Column(children: [
-              AttachmentPanel(database: database!, noteId: note.id, enabled: !scope.restoring),
-              MeetingPanel(database: database, noteId: note.id, noteService: scope.noteService,
-                  enabled: !scope.restoring, onChanged: () => _reload(changed: true)),
-            ]);
+            // 附件区：与上方便签内容用细线隔开，左对齐铺满宽度。
+            return Padding(
+              padding: const EdgeInsets.only(top: 16),
+              child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+                Divider(height: 1, color: SeqTokens.noteInk.withValues(alpha: 0.12)),
+                const SizedBox(height: 8),
+                AttachmentPanel(database: database!, noteId: note.id, enabled: !scope.restoring),
+                MeetingPanel(database: database, noteId: note.id, noteService: scope.noteService,
+                    enabled: !scope.restoring, onChanged: () => _reload(changed: true)),
+              ]),
+            );
           }
           final extra = index >= lines.length;
           final item = extra ? standalone[index - lines.length] : byLine[index];
