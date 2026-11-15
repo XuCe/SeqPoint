@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:ota_update/ota_update.dart';
 
 import 'github_release.dart';
+import 'win_sparkle.dart';
 
 final fullUpdateInstaller = FullUpdateInstaller();
 
@@ -13,12 +14,20 @@ class FullUpdateInstaller extends ChangeNotifier with UpdaterListener {
     TargetPlatform? platform,
     AutoUpdater? desktop,
     OtaUpdate Function()? otaFactory,
+    WinSparkle? Function()? winSparkle,
   }) : platform = platform ?? defaultTargetPlatform,
        _desktop = desktop,
-       _otaFactory = otaFactory ?? OtaUpdate.new;
+       _otaFactory = otaFactory ?? OtaUpdate.new,
+       _openWinSparkle = winSparkle ?? WinSparkle.open;
   final TargetPlatform platform;
   AutoUpdater? _desktop;
   bool _listening = false;
+  final WinSparkle? Function() _openWinSparkle;
+  WinSparkle? _winSparkle;
+  bool _winSparkleOpened = false;
+  // 同一更新源只交给原生更新器一次：插件每次设置都会重新初始化 WinSparkle，
+  // 而初始化会清理已下载的安装包。
+  String? _feedUrl;
   final OtaUpdate Function() _otaFactory;
   OtaUpdate? _ota;
   StreamSubscription<OtaEvent>? _subscription;
@@ -51,14 +60,34 @@ class FullUpdateInstaller extends ChangeNotifier with UpdaterListener {
         desktop.addListener(this);
         _listening = true;
       }
-      await desktop.setFeedURL(release.appcastUrl.toString());
+      final sparkle = platform == TargetPlatform.windows ? _sparkle() : null;
+      // 必须在插件初始化 WinSparkle 之前关闭自动检查，否则它会另弹询问。
+      sparkle?.disableAutomaticChecks();
+      final feed = release.appcastUrl.toString();
+      if (feed != _feedUrl) {
+        await desktop.setFeedURL(feed);
+        _feedUrl = feed;
+      }
       await desktop.setScheduledCheckInterval(0);
-      await desktop.checkForUpdates(inBackground: false);
-      message = '请在更新窗口中确认下载与安装';
+      if (sparkle != null) {
+        sparkle.checkAndInstall();
+        message = '正在下载新版本，完成后自动安装并重新打开';
+      } else {
+        await desktop.checkForUpdates(inBackground: false);
+        message = '请在更新窗口中确认下载与安装';
+      }
     } finally {
       busy = false;
       notifyListeners();
     }
+  }
+
+  WinSparkle? _sparkle() {
+    if (!_winSparkleOpened) {
+      _winSparkle = _openWinSparkle();
+      _winSparkleOpened = true;
+    }
+    return _winSparkle;
   }
 
   Future<void> _installAndroid(FullRelease release) async {
@@ -145,7 +174,7 @@ class FullUpdateInstaller extends ChangeNotifier with UpdaterListener {
 
   @override
   void onUpdaterUpdateDownloaded(AppcastItem? item) {
-    message = '已下载，确认安装后将退出应用';
+    message = '已下载，安装时将退出并重新打开应用';
     notifyListeners();
   }
 

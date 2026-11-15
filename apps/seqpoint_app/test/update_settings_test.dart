@@ -14,6 +14,7 @@ class FakeUpdater implements ShorebirdUpdater {
   bool failDownload = false;
   bool staged = true;
   Completer<UpdateStatus>? pending;
+  Patch? current, next;
 
   @override
   Future<UpdateStatus> checkForUpdate({UpdateTrack? track}) async {
@@ -28,9 +29,9 @@ class FakeUpdater implements ShorebirdUpdater {
   }
 
   @override
-  Future<Patch?> readCurrentPatch() async => null;
+  Future<Patch?> readCurrentPatch() async => current;
   @override
-  Future<Patch?> readNextPatch() async => Patch(number: 1);
+  Future<Patch?> readNextPatch() async => next ?? current;
 }
 
 void main() {
@@ -112,5 +113,48 @@ void main() {
     expect(updater.downloads, 1);
     expect(find.text('更新已就绪，下次启动生效'), findsOneWidget);
   });
+  testWidgets('桌面下载补丁后可立即重启', (tester) async {
+    final updater = FakeUpdater();
+    var restarts = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: UpdateSettingsPage(updater: updater, restart: () async => restarts++),
+    ));
+    await tester.tap(find.text('检查更新'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('下载更新'));
+    await tester.pumpAndSettle();
+    expect(find.text('更新已就绪，重启后生效'), findsOneWidget);
+    await tester.tap(find.text('立即重启'));
+    await tester.pumpAndSettle();
+    expect(restarts, 1);
+  });
+  testWidgets('启动时已在后台下载的补丁，打开页面即可重启', (tester) async {
+    final updater = FakeUpdater()
+      ..current = const Patch(number: 1)
+      ..next = const Patch(number: 2);
+    var fail = true, restarts = 0;
+    await tester.pumpWidget(MaterialApp(
+      home: UpdateSettingsPage(updater: updater, restart: () async {
+        restarts++;
+        if (fail) throw StateError('sync busy');
+      }),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('更新已就绪，重启后生效'), findsOneWidget);
+    await tester.tap(find.text('立即重启'));
+    await tester.pumpAndSettle();
+    expect(find.text('暂时无法重启，请稍后重试'), findsOneWidget);
+    fail = false;
+    await tester.tap(find.text('立即重启'));
+    await tester.pumpAndSettle();
+    expect(restarts, 2);
+    expect(updater.downloads, 0);
+  });
+  testWidgets('不能自动重启时提示下次启动生效', (tester) async {
+    final updater = FakeUpdater()..next = const Patch(number: 1);
+    await tester.pumpWidget(MaterialApp(home: UpdateSettingsPage(updater: updater)));
+    await tester.pumpAndSettle();
+    expect(find.text('更新已就绪，下次启动生效'), findsOneWidget);
+    expect(find.text('立即重启'), findsNothing);
+  });
 }
-

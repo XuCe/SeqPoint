@@ -8,6 +8,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:seqpoint_app/updates/full_update_installer.dart';
 import 'package:seqpoint_app/updates/github_release.dart';
+import 'package:seqpoint_app/updates/win_sparkle.dart';
 
 import 'github_release_test.dart' show release;
 
@@ -167,6 +168,41 @@ void main() {
       await installer.install(update);
       expect(native.calls, [update.appcastUrl.toString(), '0', 'check:false']);
       expect(quits, 0);
+      native.listener!.onUpdaterBeforeQuitForUpdate(null);
+      await Future<void>.delayed(Duration.zero);
+      expect(quits, 1);
+    },
+  );
+
+  test(
+    'Windows 找到更新即下载安装，不再弹出询问，同一更新源只初始化一次',
+    () async {
+      final native = DesktopUpdater();
+      final installer = FullUpdateInstaller(
+        platform: TargetPlatform.windows,
+        desktop: native,
+        winSparkle: () => WinSparkle(
+          setAutomaticChecks: (state) => native.calls.add('auto:$state'),
+          checkAndInstall: () => native.calls.add('install'),
+        ),
+      );
+      addTearDown(installer.dispose);
+      var quits = 0;
+      installer.onQuit = () async {
+        quits++;
+      };
+      final update = FullRelease.fromJson(release(), Abi.windowsX64);
+      await installer.install(update);
+      expect(native.calls, [
+        'auto:0',
+        update.appcastUrl.toString(),
+        '0',
+        'install',
+      ]);
+      expect(installer.message, contains('自动安装'));
+      native.calls.clear();
+      await installer.install(update);
+      expect(native.calls, ['auto:0', '0', 'install']);
       native.listener!.onUpdaterBeforeQuitForUpdate(null);
       await Future<void>.delayed(Duration.zero);
       expect(quits, 1);

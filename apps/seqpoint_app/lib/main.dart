@@ -13,6 +13,7 @@ import 'platform/desktop_hotkeys.dart';
 import 'platform/desktop_tray.dart';
 import 'platform/desktop_notifications.dart';
 import 'platform/mobile_notifications.dart';
+import 'updates/app_relaunch.dart';
 
 /// 应用入口。
 ///
@@ -20,6 +21,8 @@ import 'platform/mobile_notifications.dart';
 /// 移动端只有一个入口。
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
+  // “立即重启”拉起的新进程：等旧进程退出后再打开数据库与托盘。
+  await AppRelauncher.waitForPreviousExit(args);
 
   if (Platform.isMacOS || Platform.isWindows) {
     final current = await WindowController.fromCurrentEngine();

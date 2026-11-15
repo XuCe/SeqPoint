@@ -10,6 +10,8 @@ import 'package:window_manager/window_manager.dart';
 
 import '../../app/app_scope.dart';
 import '../../mobile/note_detail_page.dart';
+import '../../updates/app_relaunch.dart';
+import '../../updates/full_update_auto.dart';
 import '../../updates/full_update_installer.dart';
 import '../../settings/settings_view.dart';
 import '../../shared/item_editor_page.dart';
@@ -27,9 +29,12 @@ import 'today_view.dart';
 ///
 /// 平时只有两栏，便签面板按需出现、随手关掉，不做常驻的邮件式三栏。
 class MainPanel extends StatefulWidget {
-  const MainPanel({super.key, this.hotkeys, this.tray});
+  const MainPanel({super.key, this.hotkeys, this.tray, this.relauncher});
   final HotkeyService? hotkeys;
   final TrayService? tray;
+
+  /// 为空时使用全局 [appRelauncher]。
+  final AppRelauncher? relauncher;
 
   @override
   State<MainPanel> createState() => _MainPanelState();
@@ -49,6 +54,12 @@ class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindi
   bool get _restoring => AppScope.of(context).restoring;
   Future<void>? _hotkeyRegistration, _trayInitialization;
   final _bindings = <HotkeyAction, HotkeyBinding>{};
+  FullUpdateAutoChecker? _autoUpdate;
+  AppRelauncher get _relauncher => widget.relauncher ?? appRelauncher;
+
+  /// 退出时等待同步收尾的上限。网络同步可能卡在超时上；本地事务是原子的，
+  /// 超时后直接退出，未完成的这一轮下次启动续传。
+  static const _exitDrainLimit = Duration(seconds: 3);
 
   Future<void> _initTray() async {
     final tray = widget.tray;
@@ -104,7 +115,7 @@ class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindi
       await _prepareFullUpdate();
       _quitting = true;
       scope.onQuittingChanged?.call(true);
-      await scope.beforeQuit?.call();
+      await _drainBeforeExit(scope);
       _readyToTerminate = true;
       return AppExitResponse.exit;
     } catch (_) {
@@ -118,36 +129,84 @@ class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindi
     }
   }
 
+  /// 安装会退出应用：正在编辑时不打断，避免丢失未保存的内容。
+  bool _idleForUpdate() =>
+      mounted && !_quitting && !_restoring && !_opening && _panelNoteId == null &&
+      ModalRoute.of(context)?.isCurrent == true;
+
   Future<void> _quitForUpdate() async {
+    if (!_idleForUpdate()) throw StateError('请先保存并关闭正在编辑的内容');
     await _prepareFullUpdate();
-    await _quit();
+    if (!await _quit()) throw StateError('应用暂时无法安全退出');
   }
 
-  Future<void> _quit() async {
-    if (_quitting || !mounted || _restoring) return;
+  Future<void> _restart() async {
+    if (!await _quit(relaunch: true)) throw StateError('应用暂时无法安全退出');
+  }
+
+  Future<void> _drainBeforeExit(AppScope scope) async {
+    final drain = scope.beforeQuit?.call();
+    if (drain == null) return;
+    try {
+      await drain.timeout(_exitDrainLimit);
+    } on TimeoutException {
+      // 见 _exitDrainLimit。
+    }
+  }
+
+  /// 退出第一步：立即藏起主窗并移除托盘图标，点“退出”后马上看到结果，
+  /// 收尾在后台进行。返回托盘此前是否启用，失败回滚时据此恢复。
+  Future<bool> _hideForQuit() async {
+    await _trayInitialization;
+    if (!_backgroundReady) return false;
+    _backgroundReady = false;
+    try {
+      await windowManager.hide();
+    } catch (_) {}
+    try {
+      await widget.tray?.dispose();
+    } catch (_) {}
+    return true;
+  }
+
+  /// 返回 true 表示已开始结束进程。
+  Future<bool> _quit({bool relaunch = false}) async {
+    if (_quitting || !mounted || _restoring) return false;
     final scope = AppScope.of(context);
     final onQuittingChanged = scope.onQuittingChanged;
     _quitting = true;
     onQuittingChanged?.call(true);
+    final hadTray = await _hideForQuit();
     try {
-      await scope.beforeQuit?.call();
+      await _drainBeforeExit(scope);
     } catch (_) {
       _quitting = false;
       onQuittingChanged?.call(false);
+      if (hadTray && mounted) {
+        _trayInitialization = _initTray();
+        try {
+          await windowManager.show();
+        } catch (_) {}
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('同步仍在关闭中，请稍后重试退出')));
       }
-      return;
+      return false;
     }
     try {
-      await _trayInitialization;
       await _hotkeyRegistration;
       await _hotkeySubscription?.cancel();
       await _releaseHotkeys();
-      if (_backgroundReady) await widget.tray?.dispose();
+      if (relaunch) {
+        try {
+          await _relauncher.scheduleAfterExit();
+        } catch (error, stack) {
+          // 拉起失败也照常退出：收尾已完成，用户可手动重新打开。
+          FlutterError.reportError(FlutterErrorDetails(exception: error, stack: stack));
+        }
+      }
     } finally {
-      _backgroundReady = false;
       try {
         _readyToTerminate = true;
         await windowManager.destroy();
@@ -155,6 +214,7 @@ class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindi
         onQuittingChanged?.call(false);
       }
     }
+    return true;
   }
 
   Future<void> _registerHotkeys() async {
@@ -242,6 +302,15 @@ class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindi
     WidgetsBinding.instance.addObserver(this);
     fullUpdateInstaller.onPrepare = _prepareFullUpdate;
     fullUpdateInstaller.onQuit = _quitForUpdate;
+    if (widget.tray != null && _relauncher.supported) {
+      _relauncher.onRestart = _restart;
+    }
+    if (widget.tray != null && FullUpdatePreferences.supported) {
+      _autoUpdate = FullUpdateAutoChecker(
+        installer: fullUpdateInstaller,
+        canStart: _idleForUpdate,
+      )..start();
+    }
     _hotkeySubscription = widget.hotkeys?.actions.listen(_onHotkey);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _hotkeyRegistration = _registerHotkeys();
@@ -253,6 +322,8 @@ class _MainPanelState extends State<MainPanel> with WindowListener, WidgetsBindi
   void dispose() {
     fullUpdateInstaller.onPrepare = null;
     fullUpdateInstaller.onQuit = null;
+    if (_relauncher.onRestart == _restart) _relauncher.onRestart = null;
+    _autoUpdate?.dispose();
     unawaited(_hotkeySubscription?.cancel());
     if (!_quitting) unawaited(_releaseHotkeys());
     windowManager.removeListener(this);

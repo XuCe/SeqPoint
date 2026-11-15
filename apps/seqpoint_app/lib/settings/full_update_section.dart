@@ -1,16 +1,26 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../updates/full_update_auto.dart';
 import '../updates/github_release.dart';
 import '../updates/full_update_installer.dart';
 import 'settings_scaffold.dart';
 
 class FullUpdateSection extends StatefulWidget {
-  const FullUpdateSection({super.key, this.loadRelease, this.installer});
+  const FullUpdateSection({
+    super.key,
+    this.loadRelease,
+    this.installer,
+    this.autoUpdateSupported,
+  });
   final Future<FullRelease> Function()? loadRelease;
   final FullUpdateInstaller? installer;
+
+  /// 是否显示“自动更新”开关；为空时按平台判断。
+  final bool? autoUpdateSupported;
   @override
   State<FullUpdateSection> createState() => _FullUpdateSectionState();
 }
@@ -20,7 +30,12 @@ class _FullUpdateSectionState extends State<FullUpdateSection> {
   String? _installed;
   String _message = '检查是否有新的完整版本';
   bool _checking = false;
+  bool _installFailed = false;
   FullRelease? _release;
+  bool? _autoEnabled;
+  late final bool _autoSupported =
+      widget.autoUpdateSupported ?? FullUpdatePreferences.supported;
+
   @override
   void initState() {
     super.initState();
@@ -30,6 +45,28 @@ class _FullUpdateSectionState extends State<FullUpdateSection> {
         if (mounted) setState(() => _message = '无法读取版本，请重试检查');
       }),
     );
+    if (_autoSupported) {
+      unawaited(FullUpdatePreferences.autoEnabled().then((value) {
+        if (mounted) setState(() => _autoEnabled = value);
+      }, onError: (Object _) {
+        if (mounted) setState(() => _autoEnabled = true);
+      }));
+    }
+  }
+
+  Future<void> _setAutoEnabled(bool value) async {
+    final previous = _autoEnabled;
+    setState(() => _autoEnabled = value);
+    try {
+      await FullUpdatePreferences.setAutoEnabled(value);
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _autoEnabled = previous;
+          _message = '自动更新设置保存失败，请重试';
+        });
+      }
+    }
   }
 
   Future<void> _readVersion() async {
@@ -52,9 +89,11 @@ class _FullUpdateSectionState extends State<FullUpdateSection> {
   Future<void> _check() async {
     setState(() {
       _checking = true;
+      _installFailed = false;
       _release = null;
       _message = '正在检查完整版本…';
     });
+    FullRelease? found;
     try {
       await _readVersion();
       final release = await (widget.loadRelease ?? fetchLatestRelease)();
@@ -62,18 +101,27 @@ class _FullUpdateSectionState extends State<FullUpdateSection> {
       final newer = release.isNewerThan(_installed!);
       _release = newer ? release : null;
       _message = newer ? '发现新版本 ${release.version}' : '当前已是最新完整版本';
+      if (newer && release.downloadUrl != null) found = release;
     } catch (_) {
       if (mounted) _message = '检查失败，请检查网络后重试';
     } finally {
       if (mounted) setState(() => _checking = false);
     }
+    // 检查即确认：发现可安装的新版本就直接下载安装，不再另点按钮。
+    if (found != null && mounted) await _install();
   }
 
   Future<void> _install() async {
+    setState(() => _installFailed = false);
     try {
       await _installer.install(_release!);
     } catch (_) {
-      if (mounted) setState(() => _message = '无法启动安装，请先保存并关闭便签后重试');
+      if (mounted) {
+        setState(() {
+          _installFailed = true;
+          _message = '无法启动安装，请先保存并关闭便签后重试';
+        });
+      }
     }
   }
 
@@ -112,12 +160,12 @@ class _FullUpdateSectionState extends State<FullUpdateSection> {
           children: [
             OutlinedButton(
               onPressed: _checking || _installer.busy ? null : _check,
-              child: Text(_checking ? '正在检查…' : '检查完整版本'),
+              child: Text(_checking ? '正在检查…' : '检查并更新'),
             ),
-            if (_release?.downloadUrl != null)
+            if (_installFailed && _release?.downloadUrl != null)
               FilledButton(
                 onPressed: _checking || _installer.busy ? null : _install,
-                child: const Text('下载并安装'),
+                child: const Text('重试安装'),
               ),
             if (_installer.downloading)
               TextButton(
@@ -135,9 +183,21 @@ class _FullUpdateSectionState extends State<FullUpdateSection> {
       ),
       if (_checking || _installer.busy)
         LinearProgressIndicator(value: _checking ? null : _installer.progress),
+      if (_autoSupported)
+        SwitchListTile(
+          title: const Text('自动更新完整版本'),
+          subtitle: Text(
+            defaultTargetPlatform == TargetPlatform.windows
+                ? '发现新版本时自动下载并安装，完成后重新打开'
+                : '发现新版本时自动打开更新窗口',
+          ),
+          value: _autoEnabled ?? true,
+          onChanged: _autoEnabled == null ? null : _setAutoEnabled,
+        ),
       const Padding(
         padding: EdgeInsets.fromLTRB(16, 0, 16, 16),
-        child: Text('在应用内下载并校验安装包。安装时可能需要系统确认并退出应用，请先保存未完成的编辑。'),
+        child: Text('发现新版本后直接在应用内下载、校验并开始安装，安装时应用会安全退出。'
+            '请先保存未完成的编辑。Android 需在系统提示中确认安装。'),
       ),
     ],
   );
